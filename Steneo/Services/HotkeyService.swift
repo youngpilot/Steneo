@@ -16,30 +16,58 @@ final class HotkeyService {
     private var flagsMonitor: Any?
     private var keyDownMonitor: Any?
     private var keyUpMonitor: Any?
-    private var lastDoublePressTime: Date?
-    private let doublePressInterval: TimeInterval = 0.4
+    private var mouseDownMonitor: Any?
+    /// One tap detector per modifier hotkey, so two enabled modifier hotkeys can
+    /// never interfere with each other's tap timing.
+    private var tapDetectors: [HotkeyChoice: ModifierTapDetector] = [:]
+    /// Ignore a toggle this soon after the previous one — belt and braces against
+    /// any residual double-fire (a duplicate monitor, a repeated event).
+    private let minToggleGap: TimeInterval = 0.25
+    private var lastToggleFire: TimeInterval = -.greatestFiniteMagnitude
     private var currentHotkeys: Set<HotkeyChoice> = [.doubleRightOption]
     /// In Hold mode, the hotkey currently held down (pairs press→release).
     private var heldHotkey: HotkeyChoice?
+
+    /// The modifier hotkeys, with the key code and the flag their press sets.
+    private static let modifierHotkeys: [(choice: HotkeyChoice, keyCode: UInt16, flag: NSEvent.ModifierFlags)] = [
+        (.doubleRightOption, 61, .option),
+        (.doubleRightCmd, 54, .command),
+        (.doubleFn, 63, .function),
+    ]
+
+    /// Modifiers that disqualify a tap when held alongside it. `.function` is left
+    /// out on purpose: some keyboards report it liberally, and a false positive here
+    /// would break the hotkey entirely — real shortcuts are already caught by the
+    /// "another key was pressed" rule.
+    private static let disqualifyingFlags: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
 
     var onToggle: (() -> Void)?    // Toggle mode
     var onPress: (() -> Void)?     // Hold mode: hotkey pressed → start
     var onRelease: (() -> Void)?   // Hold mode: hotkey released → stop
 
     func start() {
+        // Always tear down first: start() runs again whenever setup() is retried
+        // (the model-load Retry button), and a second set of monitors would make
+        // every key event fire twice — the first tap alone would then toggle.
+        stop()
         currentHotkeys = SettingsStore.shared.hotkeys
         SettingsStore.shared.onHotkeyChanged = { [weak self] newHotkeys in
             self?.currentHotkeys = newHotkeys
+            self?.resetDetectors()
         }
         installMonitors()
     }
 
     func stop() {
-        for m in [flagsMonitor, keyDownMonitor, keyUpMonitor].compactMap({ $0 }) {
+        for m in [flagsMonitor, keyDownMonitor, keyUpMonitor, mouseDownMonitor].compactMap({ $0 }) {
             NSEvent.removeMonitor(m)
         }
-        flagsMonitor = nil; keyDownMonitor = nil; keyUpMonitor = nil
+        flagsMonitor = nil; keyDownMonitor = nil; keyUpMonitor = nil; mouseDownMonitor = nil
+        resetDetectors()
+        heldHotkey = nil
     }
+
+    private func resetDetectors() { tapDetectors.removeAll() }
 
     private var mode: ActivationMode { SettingsStore.shared.activationMode }
 
@@ -53,21 +81,45 @@ final class HotkeyService {
         keyUpMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyUp) { [weak self] event in
             MainActor.assumeIsolated { self?.handleKeyUp(event) }
         }
+        // A click while the modifier is held also means "shortcut, not a tap"
+        // (⌘-clicking links, for one).
+        mouseDownMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] event in
+            MainActor.assumeIsolated { self?.noteOtherInput(at: event.timestamp) }
+        }
     }
 
     // MARK: - Modifier keys (Right ⌥ / Right ⌘ / Fn)
 
     private func handleFlagsChanged(_ event: NSEvent) {
         if mode == .hold { handleHoldFlags(event); return }
-        // Toggle mode: double-press of a modifier hotkey.
-        if currentHotkeys.contains(.doubleRightOption), event.keyCode == 61, event.modifierFlags.contains(.option) {
-            checkDoublePress(); return
-        }
-        if currentHotkeys.contains(.doubleRightCmd), event.keyCode == 54, event.modifierFlags.contains(.command) {
-            checkDoublePress(); return
-        }
-        if currentHotkeys.contains(.doubleFn), event.keyCode == 63, event.modifierFlags.contains(.function) {
-            checkDoublePress(); return
+        // Toggle mode: double-TAP of a modifier hotkey. The flag being present in
+        // the event is the press, its absence the release — both are fed to the
+        // detector, which only counts a press that was tapped alone.
+        guard let hk = Self.modifierHotkeys.first(where: { $0.keyCode == event.keyCode }),
+              currentHotkeys.contains(hk.choice)
+        else { return }
+
+        let isDown = event.modifierFlags.contains(hk.flag)
+        let others = !event.modifierFlags
+            .intersection(Self.disqualifyingFlags.subtracting(hk.flag))
+            .isEmpty
+        let tapEvent: ModifierTapDetector.Event = isDown
+            ? .down(at: event.timestamp, otherModifiers: others)
+            : .up(at: event.timestamp, otherModifiers: others)
+
+        var detector = tapDetectors[hk.choice] ?? ModifierTapDetector()
+        let isDoubleTap = detector.handle(tapEvent)
+        tapDetectors[hk.choice] = detector
+        if isDoubleTap { fireToggle() }
+    }
+
+    /// Any other key or click: cancels a modifier press in flight, so shortcuts
+    /// (⌘C, ⌘V, ⌘Tab …) can never be mistaken for taps.
+    private func noteOtherInput(at timestamp: TimeInterval) {
+        for key in tapDetectors.keys {
+            _ = tapDetectors[key]?.handle(.otherInput(at: timestamp))
         }
     }
 
@@ -91,6 +143,7 @@ final class HotkeyService {
     // MARK: - Regular keys (F5, ⌥Space, Fn Space)
 
     private func handleKeyDown(_ event: NSEvent) {
+        noteOtherInput(at: event.timestamp)
         if mode == .hold {
             if matchesF5(event) { holdPress(.f5) }
             else if matchesOptionSpace(event) { holdPress(.optionSpace) }
@@ -126,17 +179,12 @@ final class HotkeyService {
 
     // MARK: - Helpers
 
-    private func checkDoublePress() {
-        let now = Date()
-        if let last = lastDoublePressTime, now.timeIntervalSince(last) < doublePressInterval {
-            lastDoublePressTime = nil
-            fireToggle()
-        } else {
-            lastDoublePressTime = now
-        }
+    private func fireToggle() {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastToggleFire >= minToggleGap else { return }
+        lastToggleFire = now
+        onToggle?()
     }
-
-    private func fireToggle() { onToggle?() }
 
     /// Hold-mode press: start once, tracking which key is held.
     private func holdPress(_ choice: HotkeyChoice) {

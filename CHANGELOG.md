@@ -2,6 +2,12 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.3.2
+
+### Fixed
+- **Double-press shortcuts no longer fire on ordinary key combinations.** The detector counted *every* press of the modifier key — including the ⌘ of shortcuts like ⌘C, ⌘V or ⌘Z. Any two of those within 400 ms silently started a recording, and the next deliberate double-press then stopped that phantom recording instead of starting yours: the menubar mic flashed and nothing was dictated. A press now only counts when the modifier is tapped **alone** — no other key, no click, no second modifier, and released again quickly. Holding the key is no longer a tap either.
+- **Reinstalling the shortcut no longer doubles it.** Retrying after a failed model load installed a second set of key monitors, so every key event was handled twice. The old monitors are now removed first.
+
 ## 1.3.1
 
 ### Changed

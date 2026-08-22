@@ -12,6 +12,8 @@
 		A10001000000000000000004 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000004 /* AudioCaptureService.swift */; };
 		A10001000000000000000005 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000005 /* TranscriptionService.swift */; };
 		A10001000000000000000006 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000006 /* HotkeyService.swift */; };
+		A10001000000000000000023 /* ModifierTapDetector.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000023 /* ModifierTapDetector.swift */; };
+		A10001000000000000000207 /* ModifierTapDetectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000207 /* ModifierTapDetectorTests.swift */; };
 		A10001000000000000000007 /* OutputService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000007 /* OutputService.swift */; };
 		A10001000000000000000008 /* SettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000008 /* SettingsStore.swift */; };
 		A10001000000000000000009 /* RecordingManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000009 /* RecordingManager.swift */; };
@@ -44,6 +46,8 @@
 		A10002000000000000000004 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		A10002000000000000000005 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		A10002000000000000000006 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
+		A10002000000000000000023 /* ModifierTapDetector.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModifierTapDetector.swift; sourceTree = "<group>"; };
+		A10002000000000000000207 /* ModifierTapDetectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModifierTapDetectorTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000007 /* OutputService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OutputService.swift; sourceTree = "<group>"; };
 		A10002000000000000000008 /* SettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsStore.swift; sourceTree = "<group>"; };
 		A10002000000000000000009 /* RecordingManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingManager.swift; sourceTree = "<group>"; };
@@ -119,6 +123,7 @@
 				A10002000000000000000204 /* StatFormatTests.swift */,
 				A10002000000000000000205 /* TextCleanupTests.swift */,
 				A10002000000000000000206 /* FormattingTests.swift */,
+				A10002000000000000000207 /* ModifierTapDetectorTests.swift */,
 			);
 			path = SteneoTests;
 			sourceTree = "<group>";
@@ -160,6 +165,7 @@
 				A10002000000000000000004 /* AudioCaptureService.swift */,
 				A10002000000000000000005 /* TranscriptionService.swift */,
 				A10002000000000000000006 /* HotkeyService.swift */,
+				A10002000000000000000023 /* ModifierTapDetector.swift */,
 				A10002000000000000000007 /* OutputService.swift */,
 				A10002000000000000000008 /* SettingsStore.swift */,
 				A10002000000000000000009 /* RecordingManager.swift */,
@@ -295,6 +301,7 @@
 				A10001000000000000000004 /* AudioCaptureService.swift in Sources */,
 				A10001000000000000000005 /* TranscriptionService.swift in Sources */,
 				A10001000000000000000006 /* HotkeyService.swift in Sources */,
+				A10001000000000000000023 /* ModifierTapDetector.swift in Sources */,
 				A10001000000000000000007 /* OutputService.swift in Sources */,
 				A10001000000000000000008 /* SettingsStore.swift in Sources */,
 				A10001000000000000000009 /* RecordingManager.swift in Sources */,
@@ -325,6 +332,7 @@
 				A10001000000000000000204 /* StatFormatTests.swift in Sources */,
 				A10001000000000000000205 /* TextCleanupTests.swift in Sources */,
 				A10001000000000000000206 /* FormattingTests.swift in Sources */,
+				A10001000000000000000207 /* ModifierTapDetectorTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -457,7 +465,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -465,7 +473,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -480,7 +488,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -488,7 +496,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -501,11 +509,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -519,11 +527,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 34;
+				CURRENT_PROJECT_VERSION = 35;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.3.1;
+				MARKETING_VERSION = 1.3.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
