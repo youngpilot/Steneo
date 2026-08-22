@@ -5,7 +5,7 @@ import os
 
 private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "Output")
 
-enum InsertionMode: String, CaseIterable, Identifiable {
+enum InsertionMode: String, Codable, CaseIterable, Identifiable {
     case auto
     case clipboard
     case direct
@@ -41,6 +41,18 @@ final class OutputService {
 
     /// The last non-Steneo app that was frontmost
     private var previousApp: NSRunningApplication?
+
+    /// The app the transcript is headed for: the locked source app while a
+    /// recording is running, otherwise whatever was frontmost before Steneo.
+    /// Drives the per-app output profile.
+    var targetApp: NSRunningApplication? { sourceApp ?? previousApp }
+    var targetBundleID: String? { targetApp?.bundleIdentifier }
+    var targetAppName: String? { targetApp?.localizedName }
+
+    /// Set at recording start from the resolved profile, so the insertion mode
+    /// follows the profile of the app being dictated into. Falls back to the
+    /// global setting when no recording resolved one (file transcription).
+    var activeInsertionMode: InsertionMode?
     private var activationObserver: Any?
 
     private var ownBundleID: String? { Bundle.main.bundleIdentifier }
@@ -141,7 +153,7 @@ final class OutputService {
         let textToSend = pendingText
         pendingText = ""
 
-        let mode = SettingsStore.shared.insertionMode
+        let mode = activeInsertionMode ?? SettingsStore.shared.insertionMode
         let useDirectTyping: Bool
         switch mode {
         case .direct:

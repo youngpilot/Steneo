@@ -215,6 +215,10 @@ struct MenuBarView: View {
             .fixedSize()
         }
 
+        // Which profile the next recording will use, for the app in front. The
+        // picker doubles as the assignment UI: pick here and that app keeps it.
+        profileRow
+
         // Model loading progress
         if recordingManager.isModelLoading {
             ProgressView(recordingManager.modelLoadingStep.isEmpty
@@ -431,6 +435,38 @@ struct MenuBarView: View {
         }
         .contentShape(Rectangle())
         .onHover { footerHover = $0 }
+    }
+
+    // MARK: - Output profile for the front app
+
+    @ViewBuilder
+    private var profileRow: some View {
+        if let bundleID = recordingManager.targetBundleID,
+           let appName = recordingManager.targetAppName {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.turn.down.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(appName)
+                    .font(.body)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                Spacer(minLength: 8)
+                Picker("", selection: Binding(
+                    get: { settings.profile(forBundleID: bundleID).name },
+                    set: { settings.setProfile(named: $0, forBundleID: bundleID) }
+                )) {
+                    ForEach(settings.allProfiles) { profile in
+                        Text(profile.name).tag(profile.name)
+                    }
+                }
+                .labelsHidden()
+                .fixedSize()
+            }
+            .help("The output profile Steneo uses when you dictate into \(appName)")
+            .accessibilityElement(children: .contain)
+            .accessibilityLabel("Output profile for \(appName)")
+        }
     }
 
     // MARK: - Settings View
@@ -1090,6 +1126,8 @@ private struct InlineSettingsView: View {
     @State private var showFnKeyHint = false
     @State private var showShortcutPicker = false
     @State private var expandedSection: String? = "General"
+    /// Which extra profile the App Profiles card is currently editing.
+    @State private var editedProfileName = OutputProfile.shippedExtras[0].name
 
     private let labelFont = Font.body
 
@@ -1515,6 +1553,88 @@ private struct InlineSettingsView: View {
                 }
             }
 
+            // App Profiles
+            SettingsCard(title: "App Profiles", isExpanded: expandedSection == "App Profiles", onToggle: { toggleSection("App Profiles") }) {
+                Text("Dictation adapts to where the text goes. Standard is the Text Output settings above and applies everywhere by default; assign another profile to an app and Steneo uses it whenever you dictate there.")
+                    .font(labelFont)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                settingsRow("Edit profile") {
+                    Picker("", selection: $editedProfileName) {
+                        ForEach(settings.extraProfiles) { profile in
+                            Text(profile.name).tag(profile.name)
+                        }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+
+                if let edited = settings.extraProfiles.first(where: { $0.name == editedProfileName }) {
+                    settingsRow("Cleanup") {
+                        Picker("", selection: profileBinding(edited, \.cleanupMode)) {
+                            ForEach(CleanupMode.allCases) { Text($0.label).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    settingsRow("Format") {
+                        Picker("", selection: profileBinding(edited, \.formatMode)) {
+                            ForEach(FormatMode.allCases) { Text($0.label).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    settingsRow("Insertion") {
+                        Picker("", selection: profileBinding(edited, \.insertionMode)) {
+                            ForEach(InsertionMode.allCases) { Text($0.label).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    settingsRow("Prefix") {
+                        TextField("", text: profileBinding(edited, \.prefixText))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                    settingsRow("Suffix") {
+                        TextField("", text: profileBinding(edited, \.suffixText))
+                            .textFieldStyle(.roundedBorder)
+                    }
+                }
+
+                Divider()
+                    .padding(.vertical, 2)
+
+                if settings.appProfiles.isEmpty {
+                    Text("No apps assigned yet. Open this menu while an app is in front — the row at the top assigns a profile to it.")
+                        .font(labelFont)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(settings.appProfiles.sorted(by: { appDisplayName($0.key) < appDisplayName($1.key) }), id: \.key) { bundleID, profileName in
+                        HStack(spacing: 6) {
+                            Text(appDisplayName(bundleID))
+                                .font(labelFont)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            Text(profileName)
+                                .font(labelFont)
+                                .foregroundStyle(.secondary)
+                            Button {
+                                settings.setProfile(named: nil, forBundleID: bundleID)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(IconHoverButtonStyle())
+                            .help("Back to Standard for this app")
+                            .accessibilityLabel("Remove profile for \(appDisplayName(bundleID))")
+                        }
+                    }
+                }
+            }
+
             // Word Corrections
             SettingsCard(title: "Word Corrections", isExpanded: expandedSection == "Word Corrections", onToggle: { toggleSection("Word Corrections") }) {
                 Text("Fix words the speech model consistently mishears: enter the wrong spelling and its correction. Applied to every transcript.")
@@ -1565,6 +1685,30 @@ private struct InlineSettingsView: View {
         withAnimation(.easeInOut(duration: 0.15)) {
             expandedSection = expandedSection == section ? nil : section
         }
+    }
+
+    // MARK: - App profiles
+
+    /// Writes an edited field straight back through the store, so there is no
+    /// second copy of a profile that could drift out of sync with what's saved.
+    private func profileBinding<V>(
+        _ profile: OutputProfile, _ keyPath: WritableKeyPath<OutputProfile, V>
+    ) -> Binding<V> {
+        Binding(
+            get: { profile[keyPath: keyPath] },
+            set: {
+                var updated = profile
+                updated[keyPath: keyPath] = $0
+                settings.updateExtraProfile(updated)
+            }
+        )
+    }
+
+    /// A readable name for a bundle id. Falls back to the id itself when the app
+    /// isn't installed any more — better a visible leftover than a blank row.
+    private func appDisplayName(_ bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return FileManager.default.displayName(atPath: url.path)
     }
 
     // MARK: - Reusable row

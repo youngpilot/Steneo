@@ -259,6 +259,59 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(exportDirectory, forKey: "exportDirectory") }
     }
 
+
+    // MARK: - Output profiles
+
+    /// The profiles beyond Standard. Standard is not stored here — it is the
+    /// Text Output settings above, so nothing had to be migrated.
+    var extraProfiles: [OutputProfile] {
+        didSet {
+            guard let data = try? JSONEncoder().encode(extraProfiles) else { return }
+            UserDefaults.standard.set(data, forKey: "extraProfiles")
+        }
+    }
+
+    /// Bundle id → profile name. A missing entry means Standard.
+    var appProfiles: [String: String] {
+        didSet { UserDefaults.standard.set(appProfiles, forKey: "appProfiles") }
+    }
+
+    /// The Text Output settings, seen as a profile.
+    var standardProfile: OutputProfile {
+        OutputProfile(
+            name: OutputProfile.standardName,
+            cleanupMode: cleanupMode,
+            formatMode: formatMode,
+            insertionMode: insertionMode,
+            prefixText: prefixText,
+            suffixText: suffixText)
+    }
+
+    var allProfiles: [OutputProfile] { [standardProfile] + extraProfiles }
+
+    /// The profile a recording into `bundleID` should use.
+    func profile(forBundleID bundleID: String?) -> OutputProfile {
+        OutputProfile.resolve(
+            bundleID: bundleID, mapping: appProfiles,
+            profiles: extraProfiles, standard: standardProfile)
+    }
+
+    /// Assigns a profile to an app. Standard (or nil) removes the mapping, so an
+    /// app the user reset never lingers in the list.
+    func setProfile(named name: String?, forBundleID bundleID: String) {
+        if let name, name != OutputProfile.standardName {
+            appProfiles[bundleID] = name
+        } else {
+            appProfiles.removeValue(forKey: bundleID)
+        }
+    }
+
+    /// Writes back an edited extra profile (matched by name — names are the id).
+    func updateExtraProfile(_ profile: OutputProfile) {
+        guard let index = extraProfiles.firstIndex(where: { $0.name == profile.name }) else { return }
+        extraProfiles[index] = profile
+    }
+
     var onHotkeyChanged: ((Set<HotkeyChoice>) -> Void)?
 
     func resetToDefaults() {
@@ -282,6 +335,8 @@ final class SettingsStore {
         historyPageSize = 5
         historyLength = .twenty
         exportDirectory = SettingsStore.defaultDownloadsPath
+        extraProfiles = OutputProfile.shippedExtras
+        appProfiles = [:]
     }
 
     private init() {
@@ -331,6 +386,14 @@ final class SettingsStore {
         self.historyPageSize = ud.object(forKey: "historyPageSize") == nil ? 5 : ud.integer(forKey: "historyPageSize")
         self.historyLength = ud.object(forKey: "historyLength") == nil ? .twenty : (HistoryLength(rawValue: ud.integer(forKey: "historyLength")) ?? .twenty)
         self.exportDirectory = ud.string(forKey: "exportDirectory") ?? SettingsStore.defaultDownloadsPath
+        if let data = ud.data(forKey: "extraProfiles"),
+           let decoded = try? JSONDecoder().decode([OutputProfile].self, from: data),
+           !decoded.isEmpty {
+            self.extraProfiles = decoded
+        } else {
+            self.extraProfiles = OutputProfile.shippedExtras
+        }
+        self.appProfiles = (ud.dictionary(forKey: "appProfiles") as? [String: String]) ?? [:]
     }
 
     static let defaultDownloadsPath: String = {

@@ -10,7 +10,7 @@ private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "Forma
 /// (which is lexical — filler removal): formatting reshapes the text and needs the
 /// on-device LLM, so it's a separate opt-in. The user picks this in
 /// Settings → Text Output → Format.
-enum FormatMode: String, CaseIterable, Identifiable {
+enum FormatMode: String, Codable, CaseIterable, Identifiable {
     case none        // leave structure as-is
     case paragraphs  // insert paragraph breaks at topic shifts (wording preserved)
     case bullets     // turn into a concise bullet list

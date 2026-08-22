@@ -2,6 +2,14 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.0
+
+### Added
+- **App profiles — dictation adapts to where the text goes.** Steneo now picks its text-output settings from the app you're dictating into. **Standard** is your existing Text Output settings and still applies everywhere by default; alongside it there are four ready-made profiles you can edit: **Note** and **Email** (fillers dropped, paragraphs), **Chat** (fillers dropped, no restructuring) and **Code** (strictly verbatim, pasted atomically so an editor's autocompletion can't mangle it).
+- **Assign a profile in one click.** The top of the menu shows the app in front and which profile it will use — pick another one there and that app keeps it. Settings → App Profiles lists every assignment and lets you edit each profile.
+
+Nothing changes until you assign a profile: existing setups keep running on Standard exactly as before. The profile is decided the moment you press the shortcut, so switching apps mid-sentence can't change how your text comes out.
+
 ## 1.3.2
 
 ### Fixed

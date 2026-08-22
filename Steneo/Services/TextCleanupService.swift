@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "TextC
 
 /// How dictated text is cleaned up after transcription. The user picks this in
 /// Settings → Text Output.
-enum CleanupMode: String, CaseIterable, Identifiable {
+enum CleanupMode: String, Codable, CaseIterable, Identifiable {
     case off       // leave the transcript exactly as spoken
     case rules     // deterministic filler-word removal — instant, never changes wording
     case ai        // on-device LLM (Apple Foundation Models) — smarter, can rephrase

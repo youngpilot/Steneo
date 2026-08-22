@@ -46,6 +46,15 @@ final class RecordingManager {
     /// stop it cleanly (honored in beginCapture).
     private var stopAfterStart = false
 
+    /// The output profile resolved when this recording STARTED. Resolved once, on
+    /// purpose: the user can switch apps while speaking, and the text belongs to
+    /// the app they were in when they pressed the shortcut.
+    private(set) var activeProfile: OutputProfile = SettingsStore.shared.standardProfile
+
+    /// The app a recording would go to right now — drives the per-app profile UI.
+    var targetBundleID: String? { outputService.targetBundleID }
+    var targetAppName: String? { outputService.targetAppName }
+
     var currentText: String { transcriptionService.currentText }
     var isModelLoaded: Bool { transcriptionService.isModelLoaded }
     var modelLoadingStep: String { transcriptionService.modelLoadingStep }
@@ -169,11 +178,17 @@ final class RecordingManager {
         needsMicrophone = false
         SoundFeedback.playStart()
 
+        // Resolve the output profile for the app we're dictating into, before the
+        // prewarm — so we warm the model this recording will actually use.
+        let profile = SettingsStore.shared.profile(forBundleID: outputService.targetBundleID)
+        activeProfile = profile
+
         // In AI mode, warm the on-device model now so cleanup is fast at stop.
-        if SettingsStore.shared.cleanupMode == .ai { TextCleanupService.shared.prewarm() }
-        if SettingsStore.shared.formatMode != .none { FormattingService.shared.prewarm(mode: SettingsStore.shared.formatMode) }
+        if profile.cleanupMode == .ai { TextCleanupService.shared.prewarm() }
+        if profile.formatMode != .none { FormattingService.shared.prewarm(mode: profile.formatMode) }
 
         outputService.rememberSourceApp()
+        outputService.activeInsertionMode = profile.insertionMode
         // Let the transcription service pull finished segments' raw audio for
         // background transcription during long recordings.
         transcriptionService.segmentProvider = { [audioCaptureService] in audioCaptureService.takeSegment() }
@@ -311,8 +326,8 @@ final class RecordingManager {
         // (structure). Both run locally, never leave the Mac, and fall back to the
         // input on any failure. The menubar mic pulses warm-yellow while an LLM pass
         // runs (AI cleanup or any format mode).
-        let cleanupMode = SettingsStore.shared.cleanupMode
-        let formatMode = SettingsStore.shared.formatMode
+        let cleanupMode = activeProfile.cleanupMode
+        let formatMode = activeProfile.formatMode
         let willPostProcess = cleanupMode == .ai || formatMode != .none
         if willPostProcess { isPostProcessing = true }
         defer { if willPostProcess { isPostProcessing = false } }
@@ -330,8 +345,8 @@ final class RecordingManager {
         // with no chunk-boundary artifacts from incremental pasting.
         var output = finalText
         if !output.isEmpty {
-            let prefix = SettingsStore.shared.prefixText
-            let suffix = SettingsStore.shared.suffixText
+            let prefix = activeProfile.prefixText
+            let suffix = activeProfile.suffixText
             if !prefix.isEmpty { output = prefix + " " + output }
             if !suffix.isEmpty { output = output + " " + suffix }
 
