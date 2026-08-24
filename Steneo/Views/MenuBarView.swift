@@ -22,6 +22,7 @@ struct MenuBarView: View {
     @State private var hoveringRecordings = false
     @State private var showClearConfirm = false
     @State private var fileDropTargeted = false
+    @State private var showProfileInfo = false
 
     var body: some View {
         VStack(spacing: DesignTokens.Spacing.m) {
@@ -453,6 +454,39 @@ struct MenuBarView: View {
                     .font(.body)
                     .lineLimit(1)
                     .truncationMode(.middle)
+
+                Button {
+                    showProfileInfo.toggle()
+                } label: {
+                    Image(systemName: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(IconHoverButtonStyle())
+                .help("What this is")
+                .accessibilityLabel("About output profiles")
+                .popover(isPresented: $showProfileInfo, arrowEdge: .bottom) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Output profile")
+                            .fontWeight(.medium)
+                        Text("Steneo adapts how your dictation comes out to the app it goes into — how much it's cleaned up, whether it's restructured, how it's inserted, and any prefix or suffix.")
+                        Text("The app named here is the one in front right now — the one you'd be dictating into. Open this menu from a different app and the name changes with it.")
+                        Text("Pick a profile and that app keeps it from now on. Standard is your Text Output settings and applies to every app you haven't assigned.")
+                        Divider()
+                        Text("The profile is decided the moment you press the shortcut, so switching apps while you speak can't change how the text comes out.")
+                            .foregroundStyle(.secondary)
+                        Button("Manage profiles") {
+                            showProfileInfo = false
+                            withAnimation(.easeInOut(duration: 0.15)) { showSettings = true }
+                        }
+                        .buttonStyle(LinkHoverButtonStyle())
+                    }
+                    .font(.body)
+                    .padding(12)
+                    .frame(width: 300, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+
                 Spacer(minLength: 8)
                 Picker("", selection: Binding(
                     get: { settings.profile(forBundleID: bundleID).name },

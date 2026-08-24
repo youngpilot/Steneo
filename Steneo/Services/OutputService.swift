@@ -43,9 +43,20 @@ final class OutputService {
     private var previousApp: NSRunningApplication?
 
     /// The app the transcript is headed for: the locked source app while a
-    /// recording is running, otherwise whatever was frontmost before Steneo.
-    /// Drives the per-app output profile.
-    var targetApp: NSRunningApplication? { sourceApp ?? previousApp }
+    /// recording is running, otherwise the app in front right now. Drives the
+    /// per-app output profile.
+    ///
+    /// The frontmost app is read live rather than relying only on `previousApp`:
+    /// that one is fed by activation notifications, and a single missed one would
+    /// leave the menu naming the wrong app with no way to notice.
+    var targetApp: NSRunningApplication? {
+        if let sourceApp { return sourceApp }   // locked in for this recording
+        if let front = NSWorkspace.shared.frontmostApplication,
+           front.bundleIdentifier != ownBundleID {
+            return front
+        }
+        return previousApp
+    }
     var targetBundleID: String? { targetApp?.bundleIdentifier }
     var targetAppName: String? { targetApp?.localizedName }
 
