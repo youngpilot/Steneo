@@ -23,6 +23,8 @@ struct MenuBarView: View {
     @State private var showClearConfirm = false
     @State private var fileDropTargeted = false
     @State private var showProfileInfo = false
+    /// Which settings card to open expanded (set when jumping straight to one).
+    @State private var settingsInitialSection: String? = nil
 
     var body: some View {
         VStack(spacing: DesignTokens.Spacing.m) {
@@ -476,6 +478,7 @@ struct MenuBarView: View {
                             .foregroundStyle(.secondary)
                         Button("Manage profiles") {
                             showProfileInfo = false
+                            settingsInitialSection = "App Profiles"
                             withAnimation(.easeInOut(duration: 0.15)) { showSettings = true }
                         }
                         .buttonStyle(LinkHoverButtonStyle())
@@ -573,7 +576,7 @@ struct MenuBarView: View {
 
         Divider()
 
-        InlineSettingsView()
+        InlineSettingsView(initialSection: settingsInitialSection)
     }
 
     private var resetSummary: String {
@@ -1151,6 +1154,11 @@ private struct SettingsCard<Content: View>: View {
 // MARK: - Inline Settings
 
 private struct InlineSettingsView: View {
+    /// Which card to show expanded on open. `nil` keeps the usual General.
+    init(initialSection: String? = nil) {
+        _expandedSection = State(initialValue: initialSection ?? "General")
+    }
+
     @State private var settings = SettingsStore.shared
     @State private var replacementService = TextReplacementService.shared
     @State private var audioService = SystemAudioService.shared
@@ -1160,7 +1168,7 @@ private struct InlineSettingsView: View {
     @State private var newTo = ""
     @State private var showFnKeyHint = false
     @State private var showShortcutPicker = false
-    @State private var expandedSection: String? = "General"
+    @State private var expandedSection: String?
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
 
@@ -1640,8 +1648,48 @@ private struct InlineSettingsView: View {
                 Divider()
                     .padding(.vertical, 2)
 
-                // Assigning from the menu only covers the app you're currently in.
-                // This covers the rest.
+                Text("Assigned apps")
+                    .font(labelFont)
+                    .fontWeight(.medium)
+
+                if settings.appProfiles.isEmpty {
+                    Text("None yet. Every app uses Standard until you assign one.")
+                        .font(labelFont)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    ForEach(assignedApps, id: \.self) { bundleID in
+                        HStack(spacing: 6) {
+                            Text(appDisplayName(bundleID))
+                                .font(labelFont)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer(minLength: 8)
+                            Picker("", selection: Binding(
+                                get: { settings.appProfiles[bundleID] ?? OutputProfile.standardName },
+                                set: { settings.setProfile(named: $0, forBundleID: bundleID) }
+                            )) {
+                                ForEach(settings.allProfiles) { profile in
+                                    Text(profile.name).tag(profile.name)
+                                }
+                            }
+                            .labelsHidden()
+                            .fixedSize()
+                            Button {
+                                settings.setProfile(named: nil, forBundleID: bundleID)
+                            } label: {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .buttonStyle(IconHoverButtonStyle())
+                            .help("Remove — this app goes back to Standard")
+                            .accessibilityLabel("Remove assignment for \(appDisplayName(bundleID))")
+                        }
+                    }
+                }
+
+                // The row in the menu can only ever cover the app you're in right
+                // now; this covers every other app.
                 Menu {
                     ForEach(runningApps, id: \.processIdentifier) { app in
                         Button(app.localizedName ?? app.bundleIdentifier ?? "?") {
@@ -1650,40 +1698,13 @@ private struct InlineSettingsView: View {
                             }
                         }
                     }
+                    Divider()
+                    Button("Choose an app…") { chooseAppAndAssign() }
                 } label: {
-                    Text("Assign \(editedProfileName) to an open app…")
+                    Text("Add app as \(editedProfileName)…")
                 }
                 .font(labelFont)
                 .fixedSize()
-
-                if settings.appProfiles.isEmpty {
-                    Text("No apps assigned yet. Open this menu while an app is in front — the row at the top assigns a profile to it.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else {
-                    ForEach(settings.appProfiles.sorted(by: { appDisplayName($0.key) < appDisplayName($1.key) }), id: \.key) { bundleID, profileName in
-                        HStack(spacing: 6) {
-                            Text(appDisplayName(bundleID))
-                                .font(labelFont)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-                            Spacer(minLength: 8)
-                            Text(profileName)
-                                .font(labelFont)
-                                .foregroundStyle(.secondary)
-                            Button {
-                                settings.setProfile(named: nil, forBundleID: bundleID)
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundStyle(.secondary)
-                            }
-                            .buttonStyle(IconHoverButtonStyle())
-                            .help("Back to Standard for this app")
-                            .accessibilityLabel("Remove profile for \(appDisplayName(bundleID))")
-                        }
-                    }
-                }
             }
 
             // Word Corrections
@@ -1753,6 +1774,29 @@ private struct InlineSettingsView: View {
                 settings.updateExtraProfile(updated)
             }
         )
+    }
+
+    /// Assigned bundle ids, ordered by the name the user sees.
+    private var assignedApps: [String] {
+        settings.appProfiles.keys.sorted {
+            appDisplayName($0).localizedCaseInsensitiveCompare(appDisplayName($1)) == .orderedAscending
+        }
+    }
+
+    /// Assigns a profile to an app that isn't running, picked from disk. Reads the
+    /// bundle id from the chosen bundle rather than guessing it from the name.
+    private func chooseAppAndAssign() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Assign"
+        guard panel.runModal() == .OK,
+              let url = panel.url,
+              let bundleID = Bundle(url: url)?.bundleIdentifier
+        else { return }
+        settings.setProfile(named: editedProfileName, forBundleID: bundleID)
     }
 
     /// Open apps with a normal window presence, so the list is the apps someone

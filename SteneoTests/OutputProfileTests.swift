@@ -82,6 +82,63 @@ final class OutputProfileTests: XCTestCase {
         XCTAssertEqual(decoded, [original])
     }
 
+    // MARK: - The store operations behind the settings list
+
+    /// Exercises add → change → remove on the real store, because that is what the
+    /// Assigned-apps list drives. The user's own assignments are snapshotted and
+    /// put back, so running the suite can't disturb their setup.
+    @MainActor
+    func testAssignChangeAndRemoveAnApp() {
+        let store = SettingsStore.shared
+        let saved = store.appProfiles
+        defer { store.appProfiles = saved }
+
+        store.appProfiles = [:]
+        let app = "com.example.testapp"
+
+        XCTAssertEqual(store.profile(forBundleID: app).name, OutputProfile.standardName)
+
+        store.setProfile(named: "Code", forBundleID: app)
+        XCTAssertEqual(store.profile(forBundleID: app).name, "Code")
+        XCTAssertEqual(store.profile(forBundleID: app).cleanupMode, .off)
+
+        store.setProfile(named: "Email", forBundleID: app)
+        XCTAssertEqual(store.profile(forBundleID: app).name, "Email")
+        XCTAssertEqual(store.appProfiles.count, 1, "changing must replace, not add a second entry")
+
+        store.setProfile(named: nil, forBundleID: app)
+        XCTAssertEqual(store.profile(forBundleID: app).name, OutputProfile.standardName)
+        XCTAssertTrue(store.appProfiles.isEmpty, "removing must drop the entry, not leave a dangling one")
+    }
+
+    /// Picking Standard in the list is a removal, not a stored mapping — otherwise
+    /// the list would fill up with rows that say the same as no row at all.
+    @MainActor
+    func testAssigningStandardRemovesTheEntry() {
+        let store = SettingsStore.shared
+        let saved = store.appProfiles
+        defer { store.appProfiles = saved }
+
+        store.appProfiles = ["com.example.testapp": "Chat"]
+        store.setProfile(named: OutputProfile.standardName, forBundleID: "com.example.testapp")
+        XCTAssertTrue(store.appProfiles.isEmpty)
+    }
+
+    @MainActor
+    func testEditingAProfileIsVisibleToResolution() {
+        let store = SettingsStore.shared
+        let savedProfiles = store.extraProfiles
+        let savedApps = store.appProfiles
+        defer { store.extraProfiles = savedProfiles; store.appProfiles = savedApps }
+
+        store.appProfiles = ["com.example.testapp": "Chat"]
+        var chat = store.extraProfiles.first { $0.name == "Chat" }!
+        chat.suffixText = " — sent by voice"
+        store.updateExtraProfile(chat)
+
+        XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").suffixText, " — sent by voice")
+    }
+
     func testDecodingSurvivesAProfileWithoutPrefixOrSuffix() throws {
         // Written by a build before prefix/suffix existed in the profile.
         let json = #"[{"name":"Chat","cleanupMode":"rules","formatMode":"none","insertionMode":"auto"}]"#
