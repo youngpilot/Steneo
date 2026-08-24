@@ -139,6 +139,43 @@ final class OutputProfileTests: XCTestCase {
         XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").suffixText, " — sent by voice")
     }
 
+    // MARK: - The master switch
+
+    /// Off must be a pause, not a purge: every app falls back to Standard while the
+    /// assignments survive untouched, so switching back restores the setup exactly.
+    @MainActor
+    func testTurningProfilesOffFallsBackToStandardAndKeepsAssignments() {
+        let store = SettingsStore.shared
+        let savedApps = store.appProfiles
+        let savedFlag = store.useAppProfiles
+        defer { store.appProfiles = savedApps; store.useAppProfiles = savedFlag }
+
+        store.appProfiles = ["com.example.testapp": "Code"]
+        store.useAppProfiles = true
+        XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").name, "Code")
+
+        store.useAppProfiles = false
+        XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").name, OutputProfile.standardName)
+        XCTAssertEqual(store.appProfiles, ["com.example.testapp": "Code"], "assignments must survive the pause")
+
+        store.useAppProfiles = true
+        XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").name, "Code")
+    }
+
+    /// While off, Standard must still be the user's own Text Output settings — not
+    /// some neutral default that quietly changes how their dictation comes out.
+    @MainActor
+    func testStandardStillCarriesTheUsersSettingsWhileOff() {
+        let store = SettingsStore.shared
+        let savedFlag = store.useAppProfiles
+        let savedCleanup = store.cleanupMode
+        defer { store.useAppProfiles = savedFlag; store.cleanupMode = savedCleanup }
+
+        store.cleanupMode = .rules
+        store.useAppProfiles = false
+        XCTAssertEqual(store.profile(forBundleID: "com.example.testapp").cleanupMode, .rules)
+    }
+
     func testDecodingSurvivesAProfileWithoutPrefixOrSuffix() throws {
         // Written by a build before prefix/suffix existed in the profile.
         let json = #"[{"name":"Chat","cleanupMode":"rules","formatMode":"none","insertionMode":"auto"}]"#

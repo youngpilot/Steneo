@@ -276,6 +276,13 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(appProfiles, forKey: "appProfiles") }
     }
 
+    /// Master switch for per-app profiles. Off means every app uses Standard —
+    /// the assignments are kept, not deleted, so this is a pause and not a purge
+    /// (useful for answering "was it the profile?" without losing the setup).
+    var useAppProfiles: Bool {
+        didSet { UserDefaults.standard.set(useAppProfiles, forKey: "useAppProfiles") }
+    }
+
     /// The Text Output settings, seen as a profile.
     var standardProfile: OutputProfile {
         OutputProfile(
@@ -291,7 +298,8 @@ final class SettingsStore {
 
     /// The profile a recording into `bundleID` should use.
     func profile(forBundleID bundleID: String?) -> OutputProfile {
-        OutputProfile.resolve(
+        guard useAppProfiles else { return standardProfile }
+        return OutputProfile.resolve(
             bundleID: bundleID, mapping: appProfiles,
             profiles: extraProfiles, standard: standardProfile)
     }
@@ -337,6 +345,7 @@ final class SettingsStore {
         exportDirectory = SettingsStore.defaultDownloadsPath
         extraProfiles = OutputProfile.shippedExtras
         appProfiles = [:]
+        useAppProfiles = true
     }
 
     private init() {
@@ -394,6 +403,7 @@ final class SettingsStore {
             self.extraProfiles = OutputProfile.shippedExtras
         }
         self.appProfiles = (ud.dictionary(forKey: "appProfiles") as? [String: String]) ?? [:]
+        self.useAppProfiles = ud.object(forKey: "useAppProfiles") == nil ? true : ud.bool(forKey: "useAppProfiles")
     }
 
     static let defaultDownloadsPath: String = {

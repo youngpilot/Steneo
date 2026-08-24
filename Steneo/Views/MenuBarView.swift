@@ -445,7 +445,8 @@ struct MenuBarView: View {
 
     @ViewBuilder
     private var profileRow: some View {
-        if let bundleID = recordingManager.targetBundleID,
+        if settings.useAppProfiles,
+           let bundleID = recordingManager.targetBundleID,
            let appName = recordingManager.targetAppName {
             HStack(spacing: 6) {
                 Image(systemName: "arrow.turn.down.right")
@@ -1603,6 +1604,22 @@ private struct InlineSettingsView: View {
                     .foregroundStyle(.tertiary)
                     .fixedSize(horizontal: false, vertical: true)
 
+                Toggle("Use app profiles", isOn: Binding(
+                    get: { settings.useAppProfiles },
+                    set: { settings.useAppProfiles = $0 }
+                ))
+                .font(labelFont)
+
+                if !settings.useAppProfiles {
+                    Text("Off — every app uses Standard, and the row in the menu is hidden. Your assignments are kept.")
+                        .font(labelFont)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                // Everything below stays visible while switched off, just inert:
+                // seeing the assignments is what explains why they aren't acting.
+                VStack(alignment: .leading, spacing: DesignTokens.Spacing.s) {
                 settingsRow("Edit profile") {
                     Picker("", selection: $editedProfileName) {
                         ForEach(settings.extraProfiles) { profile in
@@ -1705,6 +1722,9 @@ private struct InlineSettingsView: View {
                 }
                 .font(labelFont)
                 .fixedSize()
+                }
+                .disabled(!settings.useAppProfiles)
+                .opacity(settings.useAppProfiles ? 1 : 0.45)
             }
 
             // Word Corrections
