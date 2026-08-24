@@ -447,7 +447,9 @@ struct MenuBarView: View {
                 Image(systemName: "arrow.turn.down.right")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text(appName)
+                // Spelled out on purpose: "Claude · Standard" alone reads like a
+                // setting belonging to that app, not like a profile choice for it.
+                Text("Profile for \(appName)")
                     .font(.body)
                     .lineLimit(1)
                     .truncationMode(.middle)
