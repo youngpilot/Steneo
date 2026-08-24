@@ -219,6 +219,7 @@ struct MenuBarView: View {
         // Which profile the next recording will use, for the app in front. The
         // picker doubles as the assignment UI: pick here and that app keeps it.
         profileRow
+            .onAppear { recordingManager.refreshTargetApp() }
 
         // Model loading progress
         if recordingManager.isModelLoading {
@@ -469,11 +470,9 @@ struct MenuBarView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Output profile")
                             .fontWeight(.medium)
-                        Text("Steneo adapts how your dictation comes out to the app it goes into — how much it's cleaned up, whether it's restructured, how it's inserted, and any prefix or suffix.")
-                        Text("The app named here is the one in front right now — the one you'd be dictating into. Open this menu from a different app and the name changes with it.")
-                        Text("Pick a profile and that app keeps it from now on. Standard is your Text Output settings and applies to every app you haven't assigned.")
-                        Divider()
-                        Text("The profile is decided the moment you press the shortcut, so switching apps while you speak can't change how the text comes out.")
+                        Text("A profile sets how your dictation comes out: cleanup, formatting, insertion, prefix and suffix.")
+                        Text("Named above is the app in front. Pick a profile and it stays with that app; Standard covers all the rest.")
+                        Text("The profile is fixed the moment you press the shortcut.")
                             .foregroundStyle(.secondary)
                         Button("Manage profiles") {
                             showProfileInfo = false
@@ -1641,6 +1640,22 @@ private struct InlineSettingsView: View {
                 Divider()
                     .padding(.vertical, 2)
 
+                // Assigning from the menu only covers the app you're currently in.
+                // This covers the rest.
+                Menu {
+                    ForEach(runningApps, id: \.processIdentifier) { app in
+                        Button(app.localizedName ?? app.bundleIdentifier ?? "?") {
+                            if let id = app.bundleIdentifier {
+                                settings.setProfile(named: editedProfileName, forBundleID: id)
+                            }
+                        }
+                    }
+                } label: {
+                    Text("Assign \(editedProfileName) to an open app…")
+                }
+                .font(labelFont)
+                .fixedSize()
+
                 if settings.appProfiles.isEmpty {
                     Text("No apps assigned yet. Open this menu while an app is in front — the row at the top assigns a profile to it.")
                         .font(labelFont)
@@ -1738,6 +1753,16 @@ private struct InlineSettingsView: View {
                 settings.updateExtraProfile(updated)
             }
         )
+    }
+
+    /// Open apps with a normal window presence, so the list is the apps someone
+    /// would actually dictate into — no daemons, no other menubar items.
+    private var runningApps: [NSRunningApplication] {
+        NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }
+            .sorted {
+                ($0.localizedName ?? "").localizedCaseInsensitiveCompare($1.localizedName ?? "") == .orderedAscending
+            }
     }
 
     /// A readable name for a bundle id. Falls back to the id itself when the app

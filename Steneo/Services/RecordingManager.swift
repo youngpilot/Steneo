@@ -53,6 +53,7 @@ final class RecordingManager {
 
     /// The app a recording would go to right now — drives the per-app profile UI.
     var targetBundleID: String? { outputService.targetBundleID }
+    func refreshTargetApp() { outputService.refreshTargetApp() }
     var targetAppName: String? { outputService.targetAppName }
 
     var currentText: String { transcriptionService.currentText }
@@ -182,6 +183,8 @@ final class RecordingManager {
         // prewarm — so we warm the model this recording will actually use.
         let profile = SettingsStore.shared.profile(forBundleID: outputService.targetBundleID)
         activeProfile = profile
+        let targetID = outputService.targetBundleID ?? "—"
+        logger.info("Target app \(targetID, privacy: .public) → profile \(profile.name, privacy: .public)")
 
         // In AI mode, warm the on-device model now so cleanup is fast at stop.
         if profile.cleanupMode == .ai { TextCleanupService.shared.prewarm() }

@@ -51,11 +51,25 @@ final class OutputService {
     /// leave the menu naming the wrong app with no way to notice.
     var targetApp: NSRunningApplication? {
         if let sourceApp { return sourceApp }   // locked in for this recording
+        // `previousApp` is read FIRST and unconditionally, even when the live
+        // lookup below answers: it is the only observable value here, so reading
+        // it is what subscribes the menu to app switches. Returning early past it
+        // left the row subscribed to nothing, and it kept showing whatever app it
+        // had been drawn with.
+        let tracked = previousApp
         if let front = NSWorkspace.shared.frontmostApplication,
            front.bundleIdentifier != ownBundleID {
             return front
         }
-        return previousApp
+        return tracked
+    }
+
+    /// Re-reads the frontmost app into the tracked value. Called when the menu
+    /// opens, so the row is correct even if an activation notification was missed.
+    func refreshTargetApp() {
+        guard let front = NSWorkspace.shared.frontmostApplication,
+              front.bundleIdentifier != ownBundleID else { return }
+        if front.processIdentifier != previousApp?.processIdentifier { previousApp = front }
     }
     var targetBundleID: String? { targetApp?.bundleIdentifier }
     var targetAppName: String? { targetApp?.localizedName }
