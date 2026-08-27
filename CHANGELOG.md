@@ -2,6 +2,11 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.2
+
+### Fixed
+- **Dictation no longer drops individual letters.** Short text used to be typed character by character, and when the receiving app couldn't keep up it silently swallowed some — "Deutsch" arriving as "Dutsch". That path was narrowed to short text back in 0.8.5 instead of being removed, so it kept happening to anyone dictating a few words at a time. **Auto** now always inserts through the clipboard, which is atomic and cannot lose characters, no matter how long the text is. **Direct Typing** is still there if you deliberately pick it — for apps that block pasting — and now says plainly what it costs.
+
 ## 1.4.1
 
 ### Fixed

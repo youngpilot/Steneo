@@ -35,6 +35,7 @@
 		59A7FA083FE74BA3912763C0 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241AD4F7F22E4384AD139523 /* WaveformView.swift */; };
 		A10001000000000000000200 /* StreamingWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000200 /* StreamingWindowTests.swift */; };
 		A10001000000000000000201 /* StutterRemovalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000201 /* StutterRemovalTests.swift */; };
+		A10001000000000000000207 /* InsertionModeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000207 /* InsertionModeTests.swift */; };
 		A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */; };
 		A10001000000000000000202 /* EncryptionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000202 /* EncryptionServiceTests.swift */; };
 		A10001000000000000000203 /* WPMTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000203 /* WPMTests.swift */; };
@@ -75,6 +76,7 @@
 		A10003000000000000000002 /* SteneoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SteneoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10002000000000000000200 /* StreamingWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingWindowTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000201 /* StutterRemovalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StutterRemovalTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000207 /* InsertionModeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InsertionModeTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureRecoveryTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000202 /* EncryptionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionServiceTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000203 /* WPMTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WPMTests.swift; sourceTree = "<group>"; };
@@ -124,6 +126,7 @@
 			children = (
 				A10002000000000000000200 /* StreamingWindowTests.swift */,
 				A10002000000000000000201 /* StutterRemovalTests.swift */,
+				A10002000000000000000207 /* InsertionModeTests.swift */,
 				A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */,
 				A10002000000000000000208 /* OutputProfileTests.swift */,
 				A10002000000000000000202 /* EncryptionServiceTests.swift */,
@@ -337,6 +340,7 @@
 			files = (
 				A10001000000000000000200 /* StreamingWindowTests.swift in Sources */,
 				A10001000000000000000201 /* StutterRemovalTests.swift in Sources */,
+				A10001000000000000000207 /* InsertionModeTests.swift in Sources */,
 				A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */,
 				A10001000000000000000208 /* OutputProfileTests.swift in Sources */,
 				A10001000000000000000202 /* EncryptionServiceTests.swift in Sources */,
@@ -477,7 +481,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -485,7 +489,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.1;
+				MARKETING_VERSION = 1.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -500,7 +504,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -508,7 +512,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.1;
+				MARKETING_VERSION = 1.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -521,11 +525,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.1;
+				MARKETING_VERSION = 1.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -539,11 +543,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 41;
+				CURRENT_PROJECT_VERSION = 44;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.1;
+				MARKETING_VERSION = 1.4.2;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;

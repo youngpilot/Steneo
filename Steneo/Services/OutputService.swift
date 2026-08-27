@@ -168,6 +168,26 @@ final class OutputService {
 
     private static let concealedType = NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")
 
+    /// Whether text is typed key by key instead of pasted.
+    ///
+    /// Auto NEVER types directly. Typing posts one key event per character, and
+    /// when the target app's event queue can't keep up it silently drops some —
+    /// "Deutsch" arrives as "Dutsch". That shipped in 0.8.5 and was *narrowed* to
+    /// short text rather than removed, which kept the whole failure class alive:
+    /// short dictations went straight through it, and it came back. Clipboard
+    /// insertion is atomic and cannot lose characters, so Auto always takes it.
+    /// Direct typing stays available for whoever explicitly chooses it — text
+    /// length no longer changes the answer for anyone.
+    ///
+    /// Split out and testable, because this decision stays invisible until someone
+    /// notices a missing letter in their own writing.
+    nonisolated static func usesDirectTyping(mode: InsertionMode, textLength: Int) -> Bool {
+        switch mode {
+        case .direct: true
+        case .auto, .clipboard: false
+        }
+    }
+
     private func doPaste(to app: NSRunningApplication) {
         guard !pendingText.isEmpty else {
             isPasting = false
@@ -179,19 +199,7 @@ final class OutputService {
         pendingText = ""
 
         let mode = activeInsertionMode ?? SettingsStore.shared.insertionMode
-        let useDirectTyping: Bool
-        switch mode {
-        case .direct:
-            useDirectTyping = true
-        case .auto:
-            // Only genuinely short snippets type directly; anything longer goes
-            // through the atomic, drop-proof clipboard paste below. (Whole-text
-            // paste-at-stop means "short" must be small — an 80-char sentence
-            // typed key-by-key dropped characters.)
-            useDirectTyping = textToSend.count <= 30
-        case .clipboard:
-            useDirectTyping = false
-        }
+        let useDirectTyping = Self.usesDirectTyping(mode: mode, textLength: textToSend.count)
 
         if useDirectTyping {
             logger.info("Direct typing: \(textToSend.count) chars")
