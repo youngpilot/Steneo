@@ -16,7 +16,19 @@ import Foundation
 /// "no text arrived" has four very different causes and guessing between them is
 /// what cost days.
 
-let spoken = "The quick brown fox jumps over the lazy dog near the river bank"
+/// Two utterances, and the SHORT one is not decoration.
+///
+/// The first version of this gate spoke only a long sentence — and a long
+/// sentence goes through the clipboard, which was never the broken path. It
+/// passed against the very build that was dropping characters. A gate that
+/// cannot catch the bug it was built for is not a gate.
+///
+/// Under 30 characters is what the old code typed key by key, so that is where
+/// the failure lives.
+let utterances: [(label: String, text: String)] = [
+    ("short (under 30 characters — the path that dropped letters)", "Good morning everyone"),
+    ("long (goes through the clipboard)", "The quick brown fox jumps over the lazy dog near the river bank"),
+]
 let minimumRecall = 0.5   // set before the first run: half the words must survive
 
 // MARK: - Small helpers
@@ -196,53 +208,62 @@ func doubleTapRightCommand() {
     }
 }
 
-let started = Date()
-print("· starting recording")
-doubleTapRightCommand()
-Thread.sleep(forTimeInterval: 1.5)
-print("· speaking: \"\(spoken)\"")
-run("/usr/bin/say", ["-r", "170", spoken])
-Thread.sleep(forTimeInterval: 1.0)
-print("· stopping recording")
-doubleTapRightCommand()
-print("· waiting for transcription and insertion")
-Thread.sleep(forTimeInterval: 15)
-
-let arrived = readDoc()
-
-// MARK: - Locate the failure instead of guessing
-
-let since = ISO8601DateFormatter().string(from: started.addingTimeInterval(-2))
-let logText = run("/usr/bin/log", ["show", "--start", String(since.prefix(19)).replacingOccurrences(of: "T", with: " "),
-                                   "--info", "--predicate", "subsystem == \"com.youngpilot.Steneo\"", "--style", "compact"])
-let sawStart = logText.contains("Target app")
-let sawTranscript = logText.contains("final transcript")
-let sawInsert = logText.contains("insertText")
-
 func words(_ s: String) -> Set<String> {
     Set(s.lowercased().split { !$0.isLetter }.map(String.init).filter { $0.count > 2 })
 }
-let expected = words(spoken)
-let got = words(arrived)
-let recall = expected.isEmpty ? 0 : Double(expected.intersection(got).count) / Double(expected.count)
 
-print("")
-print("stage · shortcut fired:      \(sawStart ? "yes" : "NO")")
-print("stage · transcript produced: \(sawTranscript ? "yes" : "NO")")
-print("stage · text inserted:       \(sawInsert ? "yes" : "NO")")
-print("arrived (\(arrived.count) characters): \(arrived.isEmpty ? "—" : arrived)")
-print(String(format: "word recall: %.0f%% (%d of %d)", recall * 100, expected.intersection(got).count, expected.count))
+var failures: [String] = []
+
+for (label, spoken) in utterances {
+    print("")
+    print("— \(label)")
+    requireWritableTarget()
+    let started = Date()
+    doubleTapRightCommand()
+    Thread.sleep(forTimeInterval: 1.5)
+    print("· speaking: \"\(spoken)\"")
+    run("/usr/bin/say", ["-r", "170", spoken])
+    Thread.sleep(forTimeInterval: 1.0)
+    doubleTapRightCommand()
+    Thread.sleep(forTimeInterval: 15)
+
+    let arrived = readDoc()
+    let since = String(ISO8601DateFormatter().string(from: started.addingTimeInterval(-2)).prefix(19))
+        .replacingOccurrences(of: "T", with: " ")
+    let logText = run("/usr/bin/log", ["show", "--start", since, "--info",
+                                       "--predicate", "subsystem == \"com.youngpilot.Steneo\"", "--style", "compact"])
+    let sawStart = logText.contains("Target app")
+    let sawTranscript = logText.contains("final transcript")
+    let sawInsert = logText.contains("insertText")
+
+    let expected = words(spoken)
+    let got = words(arrived)
+    let hits = expected.intersection(got).count
+    let recall = expected.isEmpty ? 0 : Double(hits) / Double(expected.count)
+
+    print("  shortcut fired: \(sawStart ? "yes" : "NO") · transcript: \(sawTranscript ? "yes" : "NO") · inserted: \(sawInsert ? "yes" : "NO")")
+    print("  arrived (\(arrived.count) characters): \(arrived.isEmpty ? "—" : arrived)")
+    print(String(format: "  word recall: %.0f%% (%d of %d)", recall * 100, hits, expected.count))
+
+    if !sawStart { failures.append("\(label): the shortcut never started a recording") }
+    else if !sawTranscript { failures.append("\(label): recording ran but produced no transcript") }
+    else if !sawInsert { failures.append("\(label): transcript existed but nothing was inserted") }
+    else if arrived.isEmpty { failures.append("\(label): Steneo inserted, nothing reached the window") }
+    else if recall < minimumRecall {
+        failures.append(String(format: "%@: only %.0f%% of the words survived (bar: %.0f%%) — arrived: %@",
+                               label, recall * 100, minimumRecall * 100, arrived))
+    }
+}
 
 osa("tell application \"TextEdit\" to close document \"\(docName)\" saving no")
 try? FileManager.default.removeItem(at: scratch)
 restoreEverything()
 
-if !sawStart { print("RESULT: FAILED at the shortcut — recording never started."); exit(1) }
-if !sawTranscript { print("RESULT: FAILED at capture or recognition — recording ran, no transcript."); exit(1) }
-if !sawInsert { print("RESULT: FAILED at insertion — transcript existed, nothing was inserted."); exit(1) }
-if arrived.isEmpty { print("RESULT: FAILED — Steneo inserted, but nothing reached the target window."); exit(1) }
-if recall < minimumRecall {
-    print(String(format: "RESULT: FAILED — only %.0f%% of the words survived (bar: %.0f%%).", recall * 100, minimumRecall * 100))
+print("")
+if failures.isEmpty {
+    print("RESULT: PASS — press, speak, text arrives, short and long.")
+} else {
+    for f in failures { print("FAILED · \(f)") }
+    print("RESULT: FAILED — the core chain is broken.")
     exit(1)
 }
-print("RESULT: PASS — press, speak, text arrives.")
