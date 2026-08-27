@@ -2,6 +2,12 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.1
+
+### Fixed
+- **Recording could stop working until you restarted the app.** After the audio input changed underneath it — a different microphone becoming the default, an interface waking up, the Mac coming back from sleep — the audio engine kept the *old* device's format and every attempt to record then failed instantly: the start sound played, the menubar mic flashed, and nothing happened. It never recovered on its own. Steneo now follows input-device changes as they happen, and rebuilds the audio engine from scratch if a start still fails, so a recording that can work does work.
+- **A failed start is no longer silent.** If the microphone genuinely can't be opened, Steneo says so instead of quietly turning the mic icon back to white.
+
 ## 1.4.0
 
 ### Added

@@ -16,8 +16,23 @@ private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "Audio
 /// thread-safe — mixing main-thread tap-install with a background-thread start
 /// scrambles/drops the first buffers (the 55461fa regression). One queue, always.
 final class AudioCaptureService: @unchecked Sendable {
-    private let engine = AVAudioEngine()
+    /// Replaceable on purpose. A long-lived engine keeps the input hardware's
+    /// format from the moment it was first configured; when the default input
+    /// device changes, `inputNode.outputFormat(forBus:)` can keep reporting the
+    /// OLD one. `refreshTapIfNeeded` then compares old against old, decides
+    /// nothing changed, and `engine.start()` fails with -10868 (format not
+    /// supported) on every attempt from then on — the app never recovers. A fresh
+    /// instance has no such memory, which is why recovery replaces it instead of
+    /// resetting it.
+    private var engine = AVAudioEngine()
     private let engineQueue = DispatchQueue(label: "com.youngpilot.Steneo.audioengine", qos: .userInitiated)
+    private var configObserver: NSObjectProtocol?
+
+    #if DEBUG
+    /// Makes the next `engine.start()` fail, so the recovery path can be tested
+    /// for real instead of hoping a device change reproduces the wedge.
+    var failNextStartForTesting = false
+    #endif
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
 
@@ -37,6 +52,22 @@ final class AudioCaptureService: @unchecked Sendable {
     private var onBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
     private var onLevel: (@Sendable (Float) -> Void)?
 
+    init() {
+        // Fires when the input or output hardware changes under us (device
+        // plugged in, default input switched, sample rate changed). Registered
+        // for any engine rather than a specific one, so it keeps working after a
+        // rebuild replaces the instance.
+        configObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange, object: nil, queue: nil
+        ) { [weak self] _ in
+            self?.handleConfigurationChange()
+        }
+    }
+
+    deinit {
+        if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
+    }
+
     /// Allocate engine resources ahead of time (no mic I/O, no indicator) so the
     /// first real start is fast. Call once at launch, only when mic is granted.
     func prepareEngine() {
@@ -45,6 +76,53 @@ final class AudioCaptureService: @unchecked Sendable {
             engine.prepare()
             logger.debug("Engine prepared")
         }
+    }
+
+    private func handleConfigurationChange() {
+        engineQueue.async { [self] in
+            let wasCapturing = active
+            logger.info("Audio configuration changed (capturing: \(wasCapturing, privacy: .public)) — rebuilding input")
+            rebuildEngine()
+            guard wasCapturing else { return }
+            // Mid-recording: bring the mic straight back up on the new device
+            // instead of leaving a live recording deaf.
+            do {
+                engine.prepare()
+                try engine.start()
+                logger.info("Capture resumed on the new input device")
+            } catch {
+                logger.error("Could not resume capture after the device change: \(error.localizedDescription, privacy: .public)")
+            }
+        }
+    }
+
+    /// The recovery policy after a failed engine start: rebuild once, try once
+    /// more, then give up. Split out so it can be verified without a microphone —
+    /// the machine that hit this bug is not the machine the tests run on.
+    static func retryAfterRebuild(
+        rebuild: () -> Void,
+        start: () throws -> Void,
+        onError: (Error) -> Void
+    ) -> Bool {
+        rebuild()
+        do {
+            try start()
+            return true
+        } catch {
+            onError(error)
+            return false
+        }
+    }
+
+    /// Throws away the engine and every cached format, and builds the input chain
+    /// again against the hardware as it is NOW. engineQueue only.
+    private func rebuildEngine() {
+        if engine.isRunning { engine.stop() }
+        engine.inputNode.removeTap(onBus: 0)
+        engine = AVAudioEngine()
+        converter = nil
+        tapFormat = nil
+        refreshTapIfNeeded()
     }
 
     /// Begin forwarding mic audio to the sinks. All engine I/O runs on
@@ -84,13 +162,35 @@ final class AudioCaptureService: @unchecked Sendable {
                 active = true
                 if !engine.isRunning {
                     engine.prepare()
+                    #if DEBUG
+                    if failNextStartForTesting {
+                        failNextStartForTesting = false
+                        throw NSError(domain: NSOSStatusErrorDomain, code: -10868)
+                    }
+                    #endif
                     try engine.start()
                 }
                 completion(nil)
             } catch {
-                active = false
                 logger.error("Failed to start engine: \(error.localizedDescription, privacy: .public)")
-                completion(.engineStartFailed)
+                // Recover from a wedged engine (see the note on `engine`): rebuild
+                // against the current hardware and try once more before giving up.
+                let recovered = Self.retryAfterRebuild(
+                    rebuild: { [self] in
+                        rebuildEngine()
+                        engine.prepare()
+                    },
+                    start: { [self] in try engine.start() },
+                    onError: { [self] error in
+                        logger.error("Engine start failed again after the rebuild: \(error.localizedDescription, privacy: .public)")
+                    })
+                if recovered {
+                    logger.info("Engine started after rebuilding the input chain")
+                    completion(nil)
+                } else {
+                    active = false
+                    completion(.engineStartFailed)
+                }
             }
         }
     }

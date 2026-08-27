@@ -280,6 +280,10 @@ final class RecordingManager {
         if error == .microphoneDenied {
             let status = AVCaptureDevice.authorizationStatus(for: .audio)
             needsMicrophone = (status == .denied || status == .restricted)
+        } else {
+            // Never fail silently again: without this the mic just blinked and
+            // went back to white, which reads as "the shortcut is broken".
+            showStatus("Microphone unavailable — check your input device", isError: true)
         }
         logger.error("Capture failed: \(error.localizedDescription)")
     }
