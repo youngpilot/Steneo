@@ -17,6 +17,19 @@ APP_PATH="$BUILD_DIR/$DIST_NAME.app"                     # renamed distributable
 DMG_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.dmg"
 ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 
+# --- Gate A: does text survive insertion character for character? ------------
+# Notarisation and Gatekeeper say nothing about whether the product works. This
+# release shipped a character-dropping insertion path three times because the
+# pipeline only ever checked signatures. It stops here now.
+echo "=== Gate A: insertion fidelity (opens TextEdit briefly) ==="
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
+    "$PROJECT_DIR/scripts/check-insertion.swift" -o /tmp/steneo-check-insertion
+if ! /tmp/steneo-check-insertion; then
+    echo "ABORT: insertion is not character-exact (or could not be measured). Nothing was released."
+    exit 1
+fi
+echo ""
+
 echo "=== Building $DIST_NAME v$VERSION (internal product: $BUILD_NAME) ==="
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
