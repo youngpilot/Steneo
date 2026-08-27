@@ -1493,7 +1493,7 @@ private struct InlineSettingsView: View {
                 }
 
                 if settings.insertionMode == .direct {
-                    Text("Types characters directly. Works everywhere but slower for long texts.")
+                    Text("Types character by character. Works in apps that block pasting, but a busy app can drop individual letters — use it only if Clipboard fails you.")
                         .font(labelFont)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1503,7 +1503,7 @@ private struct InlineSettingsView: View {
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
-                    Text("Direct typing for short text, clipboard for longer text.")
+                    Text("Inserts through the clipboard — atomic, and it cannot drop characters. Recommended.")
                         .font(labelFont)
                         .foregroundStyle(.tertiary)
                         .fixedSize(horizontal: false, vertical: true)
