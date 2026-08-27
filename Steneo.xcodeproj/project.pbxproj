@@ -12,6 +12,7 @@
 		A10001000000000000000004 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000004 /* AudioCaptureService.swift */; };
 		A10001000000000000000005 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000005 /* TranscriptionService.swift */; };
 		A10001000000000000000006 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000006 /* HotkeyService.swift */; };
+		A10001000000000000000027 /* DiarizationMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000027 /* DiarizationMeasurement.swift */; };
 		A10001000000000000000026 /* TextSearch.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000026 /* TextSearch.swift */; };
 		A10001000000000000000097 /* TranscriptWindow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000097 /* TranscriptWindow.swift */; };
 		A10001000000000000000025 /* TranscriptExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000025 /* TranscriptExport.swift */; };
@@ -38,6 +39,7 @@
 		59A7FA083FE74BA3912763C0 /* WaveformView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 241AD4F7F22E4384AD139523 /* WaveformView.swift */; };
 		A10001000000000000000200 /* StreamingWindowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000200 /* StreamingWindowTests.swift */; };
 		A10001000000000000000201 /* StutterRemovalTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000201 /* StutterRemovalTests.swift */; };
+		A10001000000000000000211 /* DiarizationMeasurementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000211 /* DiarizationMeasurementTests.swift */; };
 		A10001000000000000000210 /* TranscriptToolsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000210 /* TranscriptToolsTests.swift */; };
 		A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */; };
 		A10001000000000000000202 /* EncryptionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000202 /* EncryptionServiceTests.swift */; };
@@ -53,6 +55,7 @@
 		A10002000000000000000004 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		A10002000000000000000005 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		A10002000000000000000006 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
+		A10002000000000000000027 /* DiarizationMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationMeasurement.swift; sourceTree = "<group>"; };
 		A10002000000000000000026 /* TextSearch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextSearch.swift; sourceTree = "<group>"; };
 		A10002000000000000000097 /* TranscriptWindow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptWindow.swift; sourceTree = "<group>"; };
 		A10002000000000000000025 /* TranscriptExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptExport.swift; sourceTree = "<group>"; };
@@ -82,6 +85,7 @@
 		A10003000000000000000002 /* SteneoTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SteneoTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10002000000000000000200 /* StreamingWindowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamingWindowTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000201 /* StutterRemovalTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StutterRemovalTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000211 /* DiarizationMeasurementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiarizationMeasurementTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000210 /* TranscriptToolsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptToolsTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureRecoveryTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000202 /* EncryptionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EncryptionServiceTests.swift; sourceTree = "<group>"; };
@@ -132,6 +136,7 @@
 			children = (
 				A10002000000000000000200 /* StreamingWindowTests.swift */,
 				A10002000000000000000201 /* StutterRemovalTests.swift */,
+				A10002000000000000000211 /* DiarizationMeasurementTests.swift */,
 				A10002000000000000000210 /* TranscriptToolsTests.swift */,
 				A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */,
 				A10002000000000000000208 /* OutputProfileTests.swift */,
@@ -183,6 +188,7 @@
 				A10002000000000000000004 /* AudioCaptureService.swift */,
 				A10002000000000000000005 /* TranscriptionService.swift */,
 				A10002000000000000000006 /* HotkeyService.swift */,
+				A10002000000000000000027 /* DiarizationMeasurement.swift */,
 				A10002000000000000000026 /* TextSearch.swift */,
 				A10002000000000000000025 /* TranscriptExport.swift */,
 				A10002000000000000000023 /* ModifierTapDetector.swift */,
@@ -322,6 +328,7 @@
 				A10001000000000000000004 /* AudioCaptureService.swift in Sources */,
 				A10001000000000000000005 /* TranscriptionService.swift in Sources */,
 				A10001000000000000000006 /* HotkeyService.swift in Sources */,
+				A10001000000000000000027 /* DiarizationMeasurement.swift in Sources */,
 				A10001000000000000000026 /* TextSearch.swift in Sources */,
 				A10001000000000000000097 /* TranscriptWindow.swift in Sources */,
 				A10001000000000000000025 /* TranscriptExport.swift in Sources */,
@@ -352,6 +359,7 @@
 			files = (
 				A10001000000000000000200 /* StreamingWindowTests.swift in Sources */,
 				A10001000000000000000201 /* StutterRemovalTests.swift in Sources */,
+				A10001000000000000000211 /* DiarizationMeasurementTests.swift in Sources */,
 				A10001000000000000000210 /* TranscriptToolsTests.swift in Sources */,
 				A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */,
 				A10001000000000000000208 /* OutputProfileTests.swift in Sources */,
