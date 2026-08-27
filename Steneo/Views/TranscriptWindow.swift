@@ -12,17 +12,19 @@ final class TranscriptWindowPresenter: NSObject, NSWindowDelegate {
     static let shared = TranscriptWindowPresenter()
     private var window: NSWindow?
 
-    func show(title: String, text: String) {
+    func show(title: String, text: String, entryID: UUID? = nil) {
         // Reuse the window rather than stacking one per transcript: opening five
         // history entries should not bury the screen in near-identical windows.
         if let window {
-            window.contentViewController = NSHostingController(rootView: TranscriptView(title: title, initialText: text))
+            window.contentViewController = NSHostingController(
+                rootView: TranscriptView(title: title, initialText: text, entryID: entryID))
             window.title = title
             window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
-        let hosting = NSHostingController(rootView: TranscriptView(title: title, initialText: text))
+        let hosting = NSHostingController(
+            rootView: TranscriptView(title: title, initialText: text, entryID: entryID))
         let win = NSWindow(contentViewController: hosting)
         win.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         win.title = title
@@ -43,6 +45,11 @@ final class TranscriptWindowPresenter: NSObject, NSWindowDelegate {
 
 private struct TranscriptView: View {
     let title: String
+    /// The history entry this text came from, if any — only then can edits go back.
+    let entryID: UUID?
+    /// The text as last saved — updated after a save, so "edited" stops meaning
+    /// "edited at some point" and starts meaning "differs from what's stored".
+    @State private var savedText: String
     @State private var text: String
     @State private var find = ""
     @State private var replacement = ""
@@ -50,10 +57,14 @@ private struct TranscriptView: View {
     @State private var wholeWords = false
     @State private var lastResult: String?
 
-    init(title: String, initialText: String) {
+    init(title: String, initialText: String, entryID: UUID? = nil) {
         self.title = title
+        self.entryID = entryID
+        _savedText = State(initialValue: initialText)
         _text = State(initialValue: initialText)
     }
+
+    private var hasEdits: Bool { text != savedText }
 
     private var matches: Int {
         find.isEmpty ? 0 : TextSearch.count(of: find, in: text, caseSensitive: caseSensitive, wholeWords: wholeWords)
@@ -98,6 +109,16 @@ private struct TranscriptView: View {
                     lastResult = "Copied"
                 }
                 Button("Save as…") { save() }
+                if let entryID {
+                    Button("Save to History") {
+                        let ok = HistoryService.shared.updateEntry(entryID, text: text)
+                        if ok { savedText = text }
+                        lastResult = ok ? "Saved to History" : "That entry is no longer in History"
+                    }
+                    .disabled(!hasEdits)
+                    .keyboardShortcut("s", modifiers: .command)
+                    .help("Replace this recording's text with what's in the window")
+                }
             }
         }
         .padding(14)
@@ -105,6 +126,8 @@ private struct TranscriptView: View {
     }
 
     private var footer: String {
+        if let lastResult, !hasEdits || lastResult.hasPrefix("Saved") { return lastResult }
+        if hasEdits, entryID != nil { return "Edited — not saved to History yet" }
         if let lastResult { return lastResult }
         if !find.isEmpty { return matches == 1 ? "1 match" : "\(matches) matches" }
         let words = text.split { $0.isWhitespace || $0.isNewline }.count

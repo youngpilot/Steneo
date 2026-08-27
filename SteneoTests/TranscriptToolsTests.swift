@@ -70,6 +70,32 @@ final class TranscriptToolsTests: XCTestCase {
         }
     }
 
+    // MARK: - Editing a history entry
+
+    /// Correcting a transcript must not turn it into a different recording: the
+    /// id, the timestamp, the number and the duration are what the history and
+    /// the lifetime stats are keyed on. Only the text and its word count move.
+    func testEditingAnEntryKeepsItsIdentity() {
+        let original = HistoryEntry(text: "the badger crossed", duration: 12, recordingId: 7)
+        let edited = original.withText("the bagger crossed the road")
+
+        XCTAssertEqual(edited.id, original.id)
+        XCTAssertEqual(edited.timestamp, original.timestamp)
+        XCTAssertEqual(edited.recordingId, original.recordingId)
+        XCTAssertEqual(edited.duration, original.duration)
+        XCTAssertEqual(edited.text, "the bagger crossed the road")
+        XCTAssertEqual(edited.wordCount, 5, "the word count describes the text, so it must follow the edit")
+    }
+
+    /// The pace stat is derived from words and duration — an edit that changes the
+    /// wording must be reflected there rather than keeping the old number.
+    func testEditingAnEntryRecomputesItsPace() {
+        let original = HistoryEntry(text: String(repeating: "word ", count: 30), duration: 60, recordingId: 1)
+        XCTAssertEqual(original.wpm ?? 0, 30, accuracy: 0.5)
+        let edited = original.withText(String(repeating: "word ", count: 60))
+        XCTAssertEqual(edited.wpm ?? 0, 60, accuracy: 0.5)
+    }
+
     // MARK: - Export naming
 
     func testOutputFilenameKeepsTheBaseNameAndSwapsTheExtension() {

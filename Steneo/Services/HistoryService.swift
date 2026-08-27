@@ -21,6 +21,21 @@ struct HistoryEntry: Codable, Identifiable {
         self.wordCount = wordCount
     }
 
+    /// A copy carrying new text. Everything that identifies the recording — id,
+    /// timestamp, number, duration — is kept: correcting a transcript must not
+    /// turn it into a different recording, or the numbering and the stats lie.
+    /// `wordCount` is recomputed, since it describes the text and nothing else.
+    private init(from other: HistoryEntry, text: String) {
+        self.id = other.id
+        self.timestamp = other.timestamp
+        self.text = text
+        self.duration = other.duration
+        self.recordingId = other.recordingId
+        self.wordCount = text.steneoWordCount
+    }
+
+    func withText(_ newText: String) -> HistoryEntry { HistoryEntry(from: self, text: newText) }
+
     var formattedId: String {
         String(format: "%05d", recordingId ?? 0)
     }
@@ -88,6 +103,25 @@ final class HistoryService {
         ud.set(totalCharacters, forKey: "totalCharacters")
 
         saveToDefaults()
+    }
+
+    /// Replaces an entry's text in place (the transcript window's Save). Returns
+    /// false when the entry is gone — deleted, or pushed out by the history cap
+    /// while the window was open — so the caller can say so instead of silently
+    /// dropping the edit.
+    @discardableResult
+    func updateEntry(_ id: UUID, text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let index = entries.firstIndex(where: { $0.id == id }) else { return false }
+        let old = entries[index]
+        guard old.text != trimmed else { return true }
+        entries[index] = old.withText(trimmed)
+        // Lifetime character count follows the edit, otherwise the footer stat
+        // drifts away from the history it claims to summarise.
+        totalCharacters += trimmed.count - old.text.count
+        UserDefaults.standard.set(totalCharacters, forKey: "totalCharacters")
+        saveToDefaults()
+        return true
     }
 
     func deleteEntry(_ id: UUID) {

@@ -757,7 +757,7 @@ struct MenuBarView: View {
         .contextMenu {
             Button {
                 TranscriptWindowPresenter.shared.show(
-                    title: "Recording #\(entry.formattedId)", text: entry.text)
+                    title: "Recording #\(entry.formattedId)", text: entry.text, entryID: entry.id)
             } label: {
                 Label("Open in Window", systemImage: "macwindow")
             }

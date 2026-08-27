@@ -2,6 +2,12 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.5.1
+
+### Added
+- **Open audio files with Steneo from Finder.** Select one or more audio files, right-click → *Open With* → Steneo, and they go straight into the transcription queue. Steneo offers itself as an option and never takes over as the default handler for your music.
+- **Edits in the transcript window can go back to History.** After correcting a transcript, *Save to History* (⌘S) replaces that recording's text. It stays the same recording — same number, same date, same duration — only the text and its word count change.
+
 ## 1.5.0
 
 ### Added
