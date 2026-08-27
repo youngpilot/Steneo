@@ -44,6 +44,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Audio files handed to the app — `open -a Steneo file.m4a`, and Finder's
+    /// "Open With" once the bundle declares audio document types (it doesn't yet,
+    /// because the Info.plist is generated from build settings and can't express
+    /// CFBundleDocumentTypes).
+    func application(_ application: NSApplication, open urls: [URL]) {
+        let audio = urls.filter(RecordingManager.isAudioFile)
+        guard !audio.isEmpty else { return }
+        Task { @MainActor in RecordingManager.shared.transcribeFiles(audio) }
+    }
+
     /// Configure the MenuBarExtra NSPanel to block mouse events from passing through
     private func configureMenuBarPanel() {
         // The panel may not exist yet at launch, so observe window creation

@@ -259,6 +259,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(exportDirectory, forKey: "exportDirectory") }
     }
 
+    /// Whether a transcribed audio FILE also gets written out next to the export
+    /// folder, and in which format. Dictation is unaffected.
+    var fileExportFormat: FileExportFormat {
+        didSet { UserDefaults.standard.set(fileExportFormat.rawValue, forKey: "fileExportFormat") }
+    }
+
 
     // MARK: - Output profiles
 
@@ -343,6 +349,7 @@ final class SettingsStore {
         historyPageSize = 5
         historyLength = .twenty
         exportDirectory = SettingsStore.defaultDownloadsPath
+        fileExportFormat = .none
         extraProfiles = OutputProfile.shippedExtras
         appProfiles = [:]
         useAppProfiles = true
@@ -395,6 +402,7 @@ final class SettingsStore {
         self.historyPageSize = ud.object(forKey: "historyPageSize") == nil ? 5 : ud.integer(forKey: "historyPageSize")
         self.historyLength = ud.object(forKey: "historyLength") == nil ? .twenty : (HistoryLength(rawValue: ud.integer(forKey: "historyLength")) ?? .twenty)
         self.exportDirectory = ud.string(forKey: "exportDirectory") ?? SettingsStore.defaultDownloadsPath
+        self.fileExportFormat = FileExportFormat(rawValue: ud.string(forKey: "fileExportFormat") ?? "") ?? .none
         if let data = ud.data(forKey: "extraProfiles"),
            let decoded = try? JSONDecoder().decode([OutputProfile].self, from: data),
            !decoded.isEmpty {

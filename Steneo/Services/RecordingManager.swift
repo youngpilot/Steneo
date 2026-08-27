@@ -33,6 +33,12 @@ final class RecordingManager {
     private(set) var needsMicrophone = false
     private(set) var isTranscribingFile = false
     private(set) var fileTranscriptionName: String?
+    /// Files still waiting, and how many the current batch started with — so the
+    /// popover can say "2 of 5" instead of just spinning.
+    private(set) var fileQueue: [URL] = []
+    private(set) var filesDone = 0
+    private(set) var filesTotal = 0
+    private var fileTask: Task<Void, Never>?
     /// A file transcription finished and is waiting to be seen — drives the green
     /// menubar badge. Cleared when the popover opens (or a new activity starts).
     private(set) var fileTranscriptionDone = false
@@ -390,31 +396,104 @@ final class RecordingManager {
     /// engine. A file has no source app to type into, so the result is copied to
     /// the clipboard and saved to History (no auto-typing). Disabled while a live
     /// recording is in flight.
-    func transcribeFile(_ url: URL) {
-        guard !isRecording, !isStarting, !isTranscribingFile,
-              transcriptionService.isModelLoaded else { return }
+    /// Whether a dragged, picked or opened URL is something we can transcribe.
+    static func isAudioFile(_ url: URL) -> Bool {
+        (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .audio) ?? false
+    }
+
+    func transcribeFile(_ url: URL) { transcribeFiles([url]) }
+
+    /// Queue one or more audio files. Files run one at a time — the speech model is
+    /// a single resource, and running two at once would only make both slower.
+    /// Dropping more files while a batch runs appends to it rather than restarting.
+    func transcribeFiles(_ urls: [URL]) {
+        guard !isRecording, !isStarting, transcriptionService.isModelLoaded, !urls.isEmpty else { return }
         statusMessage = nil
         fileTranscriptionDone = false
+        fileQueue.append(contentsOf: urls)
+        filesTotal += urls.count
+        drainFileQueue()
+    }
+
+    /// Stops after the file that is currently running — the speech model can't be
+    /// torn down mid-file, and a half transcript is worse than one more finished.
+    func cancelFileQueue() {
+        guard !fileQueue.isEmpty else { return }
+        let dropped = fileQueue.count
+        fileQueue.removeAll()
+        filesTotal -= dropped
+        showStatus("Cancelled — \(dropped) file\(dropped == 1 ? "" : "s") skipped")
+    }
+
+    private func drainFileQueue() {
+        guard fileTask == nil else { return }   // a batch is already running
         isTranscribingFile = true
-        fileTranscriptionName = url.lastPathComponent
-        Task { @MainActor in
-            defer { isTranscribingFile = false; fileTranscriptionName = nil }
-            do {
-                let text = try await transcriptionService.transcribeFile(url: url)
-                guard !text.isEmpty else {
-                    showStatus("No speech found in that file.", isError: true)
-                    return
-                }
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(text, forType: .string)
-                historyService.addEntry(text)
-                SoundFeedback.playStop()
-                showStatus("Saved to history · copied")
-                fileTranscriptionDone = true   // green menubar badge until the popover is opened
-            } catch {
-                showStatus(error.localizedDescription, isError: true)
-                logger.error("File transcription failed: \(error.localizedDescription)")
+        fileTask = Task { @MainActor in
+            defer {
+                fileTask = nil
+                isTranscribingFile = false
+                fileTranscriptionName = nil
+                filesDone = 0
+                filesTotal = 0
             }
+            var succeeded = 0
+            var exported = 0
+            let batchSize = filesTotal
+            while !fileQueue.isEmpty {
+                let url = fileQueue.removeFirst()
+                fileTranscriptionName = url.lastPathComponent
+                do {
+                    let text = try await transcriptionService.transcribeFile(url: url)
+                    guard !text.isEmpty else {
+                        showStatus("No speech found in \(url.lastPathComponent).", isError: true)
+                        filesDone += 1
+                        continue
+                    }
+                    historyService.addEntry(text)
+                    succeeded += 1
+                    // Only a single file goes to the clipboard — in a batch the
+                    // clipboard could only ever hold the last one, which is a
+                    // silent way to lose the rest.
+                    if batchSize == 1 {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(text, forType: .string)
+                    }
+                    if writeTranscript(text, for: url) { exported += 1 }
+                } catch {
+                    showStatus("\(url.lastPathComponent): \(error.localizedDescription)", isError: true)
+                    logger.error("File transcription failed: \(error.localizedDescription)")
+                }
+                filesDone += 1
+            }
+            guard succeeded > 0 else { return }
+            SoundFeedback.playStop()
+            fileTranscriptionDone = true   // green menubar badge until the popover is opened
+            var parts = succeeded == 1 ? ["Saved to history"] : ["\(succeeded) transcripts saved to history"]
+            if batchSize == 1 { parts.append("copied") }
+            if exported > 0 { parts.append("\(exported) written to \(URL(fileURLWithPath: SettingsStore.shared.exportDirectory).lastPathComponent)") }
+            showStatus(parts.joined(separator: " · "))
+        }
+    }
+
+    /// Writes the transcript beside the export folder when the user asked for it.
+    /// Returns whether a file was written.
+    private func writeTranscript(_ text: String, for source: URL) -> Bool {
+        let format = SettingsStore.shared.fileExportFormat
+        guard let filename = TranscriptExport.outputFilename(forSource: source.lastPathComponent, format: format)
+        else { return false }
+        let directory = URL(fileURLWithPath: SettingsStore.shared.exportDirectory)
+        let target = TranscriptExport.uniqueURL(in: directory, filename: filename) {
+            FileManager.default.fileExists(atPath: $0.path)
+        }
+        let body = TranscriptExport.body(
+            text: text, sourceName: (source.lastPathComponent as NSString).deletingPathExtension, format: format)
+        do {
+            try body.write(to: target, atomically: true, encoding: .utf8)
+            return true
+        } catch {
+            logger.error("Could not write \(target.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            showStatus("Could not write the transcript file", isError: true)
+            return false
         }
     }
 

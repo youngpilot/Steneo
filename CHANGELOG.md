@@ -2,6 +2,15 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.5.0
+
+### Added
+- **Transcribe several files at once.** Drop a stack of audio files on the popover, or pick several in the file dialog — they run one after another, with progress ("3 of 7") and a Cancel that stops after the file currently running. Every transcript lands in History.
+- **Save transcripts as files.** Settings → General → *Save transcripts*: **Text (.txt)** or **Markdown (.md)**, written into your export folder and named after the source file. Off by default. Transcribing the same file twice never overwrites the first result — the second becomes "name 2.txt".
+- **A window for working with a transcript.** Right-click any History entry → *Open in Window*: the full text with find-and-replace (match case, whole words), a live match count, Copy, and Save as… The popover stays what it is — a glance; this is where you work through a transcribed interview.
+
+Dictation is untouched by all of this. Everything still runs on your Mac.
+
 ## 1.4.1
 
 ### Fixed

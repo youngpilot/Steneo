@@ -39,8 +39,9 @@ struct MenuBarView: View {
         .contentShape(Rectangle())
         .focusEffectDisabled()
         .dropDestination(for: URL.self) { urls, _ in
-            guard let url = urls.first(where: Self.isAudioFile) else { return false }
-            recordingManager.transcribeFile(url)
+            let audio = urls.filter(RecordingManager.isAudioFile)
+            guard !audio.isEmpty else { return false }
+            recordingManager.transcribeFiles(audio)
             return true
         } isTargeted: { fileDropTargeted = $0 }
         .overlay {
@@ -53,7 +54,7 @@ struct MenuBarView: View {
                     .background(warmYellow.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
                     .overlay {
                         Label {
-                            Text("Drop audio to transcribe").font(.body).fontWeight(.medium)
+                            Text("Drop audio files to transcribe").font(.body).fontWeight(.medium)
                         } icon: {
                             Image(systemName: "mic.fill").foregroundStyle(warmYellow)
                         }
@@ -68,22 +69,17 @@ struct MenuBarView: View {
         .animation(.easeInOut(duration: 0.2), value: recordingManager.statusMessage)
     }
 
-    /// Whether a dragged/picked URL is an audio file we can transcribe.
-    static func isAudioFile(_ url: URL) -> Bool {
-        (try? url.resourceValues(forKeys: [.contentTypeKey]))?.contentType?.conforms(to: .audio) ?? false
-    }
-
     /// Open a file picker for an audio file and transcribe the chosen one.
     private func pickAudioFile() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.audio]
-        panel.allowsMultipleSelection = false
+        panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
         panel.prompt = "Transcribe"
-        panel.message = "Choose an audio file to transcribe"
+        panel.message = "Choose audio files to transcribe"
         NSApp.activate(ignoringOtherApps: true)
-        if panel.runModal() == .OK, let url = panel.url {
-            recordingManager.transcribeFile(url)
+        if panel.runModal() == .OK, !panel.urls.isEmpty {
+            recordingManager.transcribeFiles(panel.urls)
         }
     }
 
@@ -263,12 +259,25 @@ struct MenuBarView: View {
         if recordingManager.isTranscribingFile {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
-                Text("Transcribing \(recordingManager.fileTranscriptionName ?? "file")…")
-                    .font(.body)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Transcribing \(recordingManager.fileTranscriptionName ?? "file")…")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if recordingManager.filesTotal > 1 {
+                        Text("\(recordingManager.filesDone + 1) of \(recordingManager.filesTotal)")
+                            .font(.caption)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
                 Spacer()
+                if !recordingManager.fileQueue.isEmpty {
+                    Button("Cancel") { recordingManager.cancelFileQueue() }
+                        .buttonStyle(BorderedHoverButtonStyle())
+                        .controlSize(.small)
+                        .help("Stop after the file that's running")
+                }
             }
             .padding(DesignTokens.Spacing.s)
             .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
@@ -746,6 +755,12 @@ struct MenuBarView: View {
         .onTapGesture { copyEntry(entry) }
         .help("Click to copy")
         .contextMenu {
+            Button {
+                TranscriptWindowPresenter.shared.show(
+                    title: "Recording #\(entry.formattedId)", text: entry.text)
+            } label: {
+                Label("Open in Window", systemImage: "macwindow")
+            }
             Button {
                 copyEntry(entry)
             } label: {
@@ -1294,6 +1309,24 @@ private struct InlineSettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                }
+
+                settingsRow("Save transcripts") {
+                    Picker("", selection: Binding(
+                        get: { settings.fileExportFormat },
+                        set: { settings.fileExportFormat = $0 }
+                    )) {
+                        ForEach(FileExportFormat.allCases) { Text($0.label).tag($0) }
+                    }
+                    .labelsHidden()
+                    .fixedSize()
+                }
+
+                if settings.fileExportFormat != .none {
+                    Text("Transcribed audio files are also written into the export folder, named after the source file. Dictation is unaffected.")
+                        .font(labelFont)
+                        .foregroundStyle(.tertiary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 HStack {
