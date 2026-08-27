@@ -62,6 +62,15 @@ codesign -dv --verbose=2 "$APP_PATH" 2>&1 | grep -E "Authority|Identifier|Runtim
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo ""
+echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
+    "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
+if ! /tmp/steneo-check-core-chain "$APP_PATH"; then
+    echo "ABORT: the core chain failed on the build being released. Nothing was released."
+    exit 1
+fi
+
+echo ""
 echo "=== Notarizing app ==="
 ditto -c -k --keepParent "$APP_PATH" "$ZIP_PATH"
 xcrun notarytool submit "$ZIP_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
