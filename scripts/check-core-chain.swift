@@ -537,7 +537,16 @@ for (label, spoken) in utterances {
     Thread.sleep(forTimeInterval: 15)
 
     let arrived = readDoc()
-    let since = String(ISO8601DateFormatter().string(from: started.addingTimeInterval(-2)).prefix(19))
+    // LOCAL time. `ISO8601DateFormatter` emits UTC, and `log show --start` reads
+    // whatever it is given as local — so on CEST every window silently began two
+    // hours early and swept in evidence from earlier runs. On 04.09.2026 that
+    // turned a denial from an hour before into "the microphone is denied" while
+    // the recording under test was working perfectly.
+    let sinceFormatter = DateFormatter()
+    sinceFormatter.locale = Locale(identifier: "en_US_POSIX")
+    sinceFormatter.timeZone = TimeZone.current
+    sinceFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+    let since = sinceFormatter.string(from: started.addingTimeInterval(-2))
         .replacingOccurrences(of: "T", with: " ")
     let logText = run("/usr/bin/log", ["show", "--start", since, "--info",
                                        "--predicate", "subsystem == \"com.youngpilot.Steneo\"", "--style", "compact"])
