@@ -102,18 +102,54 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo ""
 echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
+# macOS grants microphone access per bundle PATH, so a freshly built bundle in
+# build/ is a different app to TCC and is simply denied. The only place this
+# check can measure the artifact is where the app is installed. So: install the
+# exact bundle being released, gate it THERE, and keep the previous one to fall
+# back to. The bits under test are the bits that ship.
+INSTALLED="/Applications/$DIST_NAME.app"
+BACKUP="$BUILD_DIR/previously-installed.app"
+if [ -d "$INSTALLED" ]; then
+    rm -rf "$BACKUP"
+    cp -R "$INSTALLED" "$BACKUP"
+    echo "· previous install kept at $BACKUP"
+fi
+osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+sleep 2
+pkill -x "$BUILD_NAME" 2>/dev/null || true
+sleep 1
+rm -rf "$INSTALLED"
+cp -R "$APP_PATH" "$INSTALLED"
+open -a "$INSTALLED"
+sleep 3
+
+restore_previous_install() {
+    if [ -d "$BACKUP" ]; then
+        osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+        sleep 2
+        pkill -x "$BUILD_NAME" 2>/dev/null || true
+        sleep 1
+        rm -rf "$INSTALLED"
+        cp -R "$BACKUP" "$INSTALLED"
+        open -a "$INSTALLED"
+        echo "· previous install put back"
+    fi
+}
+
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
 B_STATUS=0
-/tmp/steneo-check-core-chain --use-speakers "$APP_PATH" || B_STATUS=$?
+/tmp/steneo-check-core-chain --use-speakers "$INSTALLED" || B_STATUS=$?
 if [ "$B_STATUS" -eq 2 ] || [ "$B_STATUS" -eq 3 ]; then
     # 2 = could not measure (headphones, no mic, muted), 3 = not confirmed.
     # Neither is a statement about the app, so neither may read as one.
+    restore_previous_install
     echo "ABORT: check B could not measure anything (see above). This says NOTHING"
     echo "       about the build. Fix the setup and run the release again."
     exit 1
 fi
 if [ "$B_STATUS" -ne 0 ]; then
+    restore_previous_install
     echo "ABORT: the core chain failed on the build being released. Nothing was released."
     exit 1
 fi
@@ -130,6 +166,18 @@ hdiutil create -volname "$DIST_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$D
 codesign --force --sign "$IDENTITY" --timestamp "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG_PATH"
+
+echo ""
+echo "=== Installing the stapled bundle ==="
+# The copy that was gated is unstapled; replace it with the notarised one so the
+# machine ends up running exactly what users download.
+osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+sleep 2
+pkill -x "$BUILD_NAME" 2>/dev/null || true
+sleep 1
+rm -rf "$INSTALLED"
+cp -R "$APP_PATH" "$INSTALLED"
+open -a "$INSTALLED"
 
 echo ""
 echo "=== Gatekeeper assessment ==="
