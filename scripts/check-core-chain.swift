@@ -1,4 +1,6 @@
 import AppKit
+import AVFoundation
+import CoreAudio
 import Foundation
 
 /// Check B of the release gate: press the shortcut, speak, text arrives.
@@ -65,36 +67,207 @@ func defaultsDelete(_ key: String) { run("/usr/bin/defaults", ["delete", "com.yo
 
 // MARK: - Restore whatever we change, whatever happens
 
-let candidatePath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "/Applications/Steneo.app"
+let arguments = Array(CommandLine.arguments.dropFirst())
+let confirmed = arguments.contains("--confirm") || ProcessInfo.processInfo.environment["STENEO_GATE_CONFIRM"] == "1"
+let candidatePath = arguments.first(where: { !$0.hasPrefix("--") }) ?? "/Applications/Steneo.app"
 let restoreInstalled = candidatePath != "/Applications/Steneo.app"
+
+// This check takes the Mac over for about a minute: it changes the volume,
+// speaks out loud, quits the running Steneo and moves focus to TextEdit. It ran
+// four times unannounced on 04.09.2026 while the user was working. It does not
+// start without being told to any more.
+guard confirmed else {
+    print("""
+          Check B takes over this Mac for about a minute:
+            · sets the output volume to 45 and speaks two sentences out loud
+            · quits the running Steneo and starts the build under test instead
+            · brings TextEdit to the front and types into it
+          Everything is put back afterwards.
+
+          It needs speakers — with headphones the microphone cannot hear the Mac
+          and the check has nothing to measure.
+
+          Run it with --confirm (or STENEO_GATE_CONFIRM=1) when the Mac is free.
+          """)
+    exit(3)
+}
 
 let savedVolume = osa("output volume of (get volume settings)")
 let savedSilence = defaultsRead("silenceMediaWhileRecording")
 let savedPause = defaultsRead("pauseMediaApps")
+/// Only put back what was actually taken. An abort in the preconditions used to
+/// quit and relaunch the user's Steneo for no reason at all.
+var changedSettings = false
+var swappedApp = false
 var restored = false
 
 func restoreEverything() {
     guard !restored else { return }
     restored = true
-    if restoreInstalled {
+    guard changedSettings || swappedApp else { return }   // nothing was taken
+
+    if swappedApp {
         osa("tell application \"Steneo\" to quit")
         Thread.sleep(forTimeInterval: 2)
         run("/usr/bin/pkill", ["-x", "Steneo"])
         run("/usr/bin/open", ["-a", "/Applications/Steneo.app"])
         print("· installed Steneo put back")
     }
+    guard changedSettings else { return }
+
     if let savedSilence { run("/usr/bin/defaults", ["write", "com.youngpilot.Steneo", "silenceMediaWhileRecording", "-bool", savedSilence == "1" ? "true" : "false"]) }
     else { defaultsDelete("silenceMediaWhileRecording") }
     if let savedPause { run("/usr/bin/defaults", ["write", "com.youngpilot.Steneo", "pauseMediaApps", "-bool", savedPause == "1" ? "true" : "false"]) }
     else { defaultsDelete("pauseMediaApps") }
-    if let v = Int(savedVolume) { osa("set volume output volume \(v)") }
-    print("· settings and volume restored")
+
+    // Read it back. The old version printed "volume restored" and left it at 45,
+    // because a restore that is never checked is a hope, not a restore.
+    if let wanted = Int(savedVolume) {
+        osa("set volume output volume \(wanted)")
+        Thread.sleep(forTimeInterval: 0.3)
+        let now = Int(osa("output volume of (get volume settings)")) ?? -1
+        if now == wanted {
+            print("· settings and volume restored (volume \(wanted))")
+        } else {
+            print("· settings restored — WARNING: volume is \(now), it was \(wanted) before. Please set it back.")
+        }
+    } else {
+        print("· settings restored — WARNING: the original volume could not be read, so it was not changed back.")
+    }
 }
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
     print(message)
     restoreEverything()
     exit(code)
+}
+
+// MARK: - Can this Mac even hear itself? (the check that was missing)
+//
+// On 04.09.2026 this gate reported "RESULT: FAILED — the core chain is broken"
+// four times while the user was wearing AirPods. The spoken words went into his
+// ears, the microphone heard nothing, and the script turned its own broken
+// premise into an accusation against the app. A control run against the
+// installed, working build failed identically — which is what finally proved the
+// measurement was at fault, not the product.
+//
+// Same class as the three false alarms in check-insertion.swift. So the same
+// answer: verify the precondition through the very path being measured, and
+// abort loudly instead of blaming anything.
+
+let sysObj = AudioObjectID(kAudioObjectSystemObject)
+
+func audioAddress(_ selector: AudioObjectPropertySelector,
+                  _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
+    AudioObjectPropertyAddress(mSelector: selector, mScope: scope, mElement: kAudioObjectPropertyElementMain)
+}
+
+func defaultOutputDevice() -> AudioDeviceID? {
+    var addr = audioAddress(kAudioHardwarePropertyDefaultOutputDevice)
+    var id = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(sysObj, &addr, 0, nil, &size, &id) == noErr, id != 0 else { return nil }
+    return id
+}
+
+func deviceName(_ id: AudioDeviceID) -> String {
+    var addr = audioAddress(kAudioObjectPropertyName)
+    var size = UInt32(MemoryLayout<UnsafeMutableRawPointer>.size)
+    var value: Unmanaged<CFString>?
+    guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr, let value else { return "?" }
+    return value.takeRetainedValue() as String
+}
+
+func deviceTransport(_ id: AudioDeviceID) -> UInt32 {
+    var addr = audioAddress(kAudioDevicePropertyTransportType)
+    var value: UInt32 = 0
+    var size = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr else { return 0 }
+    return value
+}
+
+/// The built-in output reports which physical outlet it is using. 'hdpn' is the
+/// headphone jack: audible to exactly one person, and not to the microphone.
+func outputIsHeadphoneJack(_ id: AudioDeviceID) -> Bool {
+    var addr = audioAddress(kAudioDevicePropertyDataSource, kAudioObjectPropertyScopeOutput)
+    var value: UInt32 = 0
+    var size = UInt32(MemoryLayout<UInt32>.size)
+    guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, &value) == noErr else { return false }
+    return value == 0x68647063 /* 'hdpc' */ || value == 0x6864706E /* 'hdpn' */
+}
+
+/// Loudness of the default input over `seconds`, as RMS. No speaking, no
+/// settings touched — this only listens.
+func inputLoudness(seconds: TimeInterval, whileDoing action: (() -> Void)? = nil) -> Float? {
+    let engine = AVAudioEngine()
+    let format = engine.inputNode.outputFormat(forBus: 0)
+    guard format.sampleRate > 0, format.channelCount > 0 else { return nil }
+    let lock = NSLock()
+    var sumSquares: Double = 0
+    var frames = 0
+    engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { buffer, _ in
+        guard let data = buffer.floatChannelData else { return }
+        var local: Double = 0
+        for i in 0..<Int(buffer.frameLength) { local += Double(data[0][i] * data[0][i]) }
+        lock.lock(); sumSquares += local; frames += Int(buffer.frameLength); lock.unlock()
+    }
+    do { engine.prepare(); try engine.start() } catch { return nil }
+    action?()
+    RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    engine.stop()
+    engine.inputNode.removeTap(onBus: 0)
+    lock.lock(); defer { lock.unlock() }
+    guard frames > 0 else { return nil }
+    return Float((sumSquares / Double(frames)).squareRoot())
+}
+
+/// Refuse before touching a single setting if the sound cannot reach the mic.
+func requireTheMicrophoneCanHearTheSpeaker() {
+    guard let out = defaultOutputDevice() else {
+        fail("ABORT: no audio output device. Nothing was measured.", code: 2)
+    }
+    let name = deviceName(out)
+    let transport = deviceTransport(out)
+    if transport == kAudioDeviceTransportTypeBluetooth || transport == kAudioDeviceTransportTypeBluetoothLE {
+        fail("""
+             ABORT: audio output goes to a Bluetooth device (\(name)).
+             This check speaks out loud and needs the microphone to hear it, so it cannot
+             measure anything through headphones. Switch output to speakers and run it again.
+             NOTHING WAS MEASURED — this says nothing about the app.
+             """, code: 2)
+    }
+    if outputIsHeadphoneJack(out) {
+        fail("""
+             ABORT: audio output goes to the headphone jack (\(name)).
+             NOTHING WAS MEASURED — this says nothing about the app.
+             """, code: 2)
+    }
+    if transport == kAudioDeviceTransportTypeVirtual || transport == kAudioDeviceTransportTypeAggregate {
+        fail("ABORT: audio output is a virtual device (\(name)), which the microphone cannot hear. Nothing was measured.", code: 2)
+    }
+    print("· output device: \(name)")
+
+    // Device type is not proof. Measure it: how loud is the room, and how much
+    // louder does it get when the Mac speaks? Real speakers are unmistakable;
+    // leakage from a headset is not.
+    guard let quiet = inputLoudness(seconds: 1.0) else {
+        fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+    }
+    guard let spoken = inputLoudness(seconds: 3.0, whileDoing: {
+        run("/usr/bin/say", ["-r", "170", "Steneo microphone check"])
+    }) else {
+        fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+    }
+    let ratio = quiet > 0 ? spoken / quiet : Float.infinity
+    print(String(format: "· audibility: room %.4f, speaking %.4f (%.1fx)", quiet, spoken, ratio))
+    guard spoken >= 0.01, ratio >= 3.0 else {
+        fail("""
+             ABORT: the microphone does not hear the Mac speaking (room \(String(format: "%.4f", quiet)), \
+             speaking \(String(format: "%.4f", spoken))).
+             Headphones, a muted or very quiet output, or a microphone somewhere else.
+             NOTHING WAS MEASURED — this says nothing about the app.
+             """, code: 2)
+    }
 }
 
 // MARK: - Preconditions, checked rather than assumed
@@ -107,6 +280,14 @@ guard hotkeys.contains("doubleRightCmd") else {
 print("=== Check B · press, speak, text arrives ===")
 print("· un-muting and speaking out loud; everything is restored afterwards")
 
+guard Int(savedVolume) != nil else {
+    fail("ABORT: could not read the current output volume, so it cannot be put back. Nothing was changed.", code: 2)
+}
+
+// Before anything is touched: can the microphone hear the speaker at all?
+requireTheMicrophoneCanHearTheSpeaker()
+
+changedSettings = true
 defaultsWrite("silenceMediaWhileRecording", bool: false)   // otherwise Steneo mutes our own voice
 defaultsWrite("pauseMediaApps", bool: false)
 osa("set volume output volume 45")
@@ -123,6 +304,7 @@ osa("tell application \"Steneo\" to quit")
 Thread.sleep(forTimeInterval: 3)
 run("/usr/bin/pkill", ["-x", "Steneo"])
 Thread.sleep(forTimeInterval: 1)
+swappedApp = restoreInstalled
 run("/usr/bin/open", ["-a", candidate])
 print("· waiting for the speech model to load")
 Thread.sleep(forTimeInterval: 22)

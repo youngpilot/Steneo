@@ -17,6 +17,28 @@ APP_PATH="$BUILD_DIR/$DIST_NAME.app"                     # renamed distributable
 DMG_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.dmg"
 ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 
+# --- Both gates take over this Mac. Say so, and ask. ------------------------
+# On 04.09.2026 check B ran four times unannounced while the user was working:
+# it changed the volume, spoke out loud and quit his running Steneo. Worse, he
+# was wearing headphones, so it measured nothing and reported the app as broken.
+cat <<'NOTE'
+The two release gates take over this Mac for a few minutes:
+  A · opens TextEdit and types into it (silent)
+  B · sets the volume to 45, speaks two sentences OUT LOUD, quits the running
+      Steneo and runs the build under test instead
+Everything is put back afterwards.
+
+Check B needs SPEAKERS. With headphones the microphone cannot hear the Mac and
+the check has nothing to measure — it will refuse rather than guess.
+NOTE
+read -r -p "Run the gates now? [y/N] " answer
+case "$answer" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo "Aborted before anything was touched."; exit 1 ;;
+esac
+export STENEO_GATE_CONFIRM=1
+echo ""
+
 # --- Gate A: does text survive insertion character for character? ------------
 # Notarisation and Gatekeeper say nothing about whether the product works. This
 # release shipped a character-dropping insertion path three times because the
@@ -24,8 +46,15 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 echo "=== Gate A: insertion fidelity (opens TextEdit briefly) ==="
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-insertion.swift" -o /tmp/steneo-check-insertion
-if ! /tmp/steneo-check-insertion; then
-    echo "ABORT: insertion is not character-exact (or could not be measured). Nothing was released."
+A_STATUS=0
+/tmp/steneo-check-insertion || A_STATUS=$?
+if [ "$A_STATUS" -eq 2 ] || [ "$A_STATUS" -eq 3 ]; then
+    echo "ABORT: check A could not measure anything (see above). This says NOTHING"
+    echo "       about the build. Fix the setup and run the release again."
+    exit 1
+fi
+if [ "$A_STATUS" -ne 0 ]; then
+    echo "ABORT: insertion is not character-exact. Nothing was released."
     exit 1
 fi
 echo ""
@@ -65,7 +94,16 @@ echo ""
 echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
-if ! /tmp/steneo-check-core-chain "$APP_PATH"; then
+B_STATUS=0
+/tmp/steneo-check-core-chain "$APP_PATH" || B_STATUS=$?
+if [ "$B_STATUS" -eq 2 ] || [ "$B_STATUS" -eq 3 ]; then
+    # 2 = could not measure (headphones, no mic, muted), 3 = not confirmed.
+    # Neither is a statement about the app, so neither may read as one.
+    echo "ABORT: check B could not measure anything (see above). This says NOTHING"
+    echo "       about the build. Fix the setup and run the release again."
+    exit 1
+fi
+if [ "$B_STATUS" -ne 0 ]; then
     echo "ABORT: the core chain failed on the build being released. Nothing was released."
     exit 1
 fi
