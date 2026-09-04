@@ -95,7 +95,7 @@ echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
 B_STATUS=0
-/tmp/steneo-check-core-chain "$APP_PATH" || B_STATUS=$?
+/tmp/steneo-check-core-chain --use-speakers "$APP_PATH" || B_STATUS=$?
 if [ "$B_STATUS" -eq 2 ] || [ "$B_STATUS" -eq 3 ]; then
     # 2 = could not measure (headphones, no mic, muted), 3 = not confirmed.
     # Neither is a statement about the app, so neither may read as one.

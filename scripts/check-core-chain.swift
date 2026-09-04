@@ -68,6 +68,7 @@ func defaultsDelete(_ key: String) { run("/usr/bin/defaults", ["delete", "com.yo
 // MARK: - Restore whatever we change, whatever happens
 
 let arguments = Array(CommandLine.arguments.dropFirst())
+let useBuiltInSpeakers = arguments.contains("--use-speakers")
 let confirmed = arguments.contains("--confirm") || ProcessInfo.processInfo.environment["STENEO_GATE_CONFIRM"] == "1"
 let candidatePath = arguments.first(where: { !$0.hasPrefix("--") }) ?? "/Applications/Steneo.app"
 let restoreInstalled = candidatePath != "/Applications/Steneo.app"
@@ -92,7 +93,10 @@ guard confirmed else {
     exit(3)
 }
 
-let savedVolume = osa("output volume of (get volume settings)")
+/// Read AFTER any output-device switch, because it belongs to whichever device
+/// will actually be turned up — and because AppleScript returns `missing value`
+/// for the volume of some devices, which is how it got left at 45 on 04.09.2026.
+var savedVolume = ""
 let savedSilence = defaultsRead("silenceMediaWhileRecording")
 let savedPause = defaultsRead("pauseMediaApps")
 /// Only put back what was actually taken. An abort in the preconditions used to
@@ -100,6 +104,12 @@ let savedPause = defaultsRead("pauseMediaApps")
 var changedSettings = false
 var swappedApp = false
 var restored = false
+/// The output device as we found it, so a temporary switch to the speakers can
+/// be undone — including on abort. Assigned at the moment of switching, not at
+/// script start: top-level order in a script is a trap, and reading it too early
+/// silently produced nil and left the user on the wrong output device.
+var originalOutputDevice: AudioDeviceID?
+var switchedOutput = false
 
 func restoreEverything() {
     guard !restored else { return }
@@ -134,6 +144,15 @@ func restoreEverything() {
     } else {
         print("· settings restored — WARNING: the original volume could not be read, so it was not changed back.")
     }
+
+    if switchedOutput, let original = originalOutputDevice {
+        setDefaultOutputDevice(original)
+        Thread.sleep(forTimeInterval: 0.5)
+        let now = defaultOutputDevice()
+        print(now == original
+              ? "· output device back on \(deviceName(original))"
+              : "· WARNING: could not switch the output device back to \(deviceName(original)). Please set it in Sound settings.")
+    }
 }
 
 func fail(_ message: String, code: Int32 = 1) -> Never {
@@ -155,7 +174,7 @@ func fail(_ message: String, code: Int32 = 1) -> Never {
 // answer: verify the precondition through the very path being measured, and
 // abort loudly instead of blaming anything.
 
-let sysObj = AudioObjectID(kAudioObjectSystemObject)
+var sysObj: AudioObjectID { AudioObjectID(kAudioObjectSystemObject) }
 
 func audioAddress(_ selector: AudioObjectPropertySelector,
                   _ scope: AudioObjectPropertyScope = kAudioObjectPropertyScopeGlobal) -> AudioObjectPropertyAddress {
@@ -196,6 +215,69 @@ func outputIsHeadphoneJack(_ id: AudioDeviceID) -> Bool {
     return value == 0x68647063 /* 'hdpc' */ || value == 0x6864706E /* 'hdpn' */
 }
 
+func allAudioDeviceIDs() -> [AudioDeviceID] {
+    var addr = audioAddress(kAudioHardwarePropertyDevices)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(sysObj, &addr, 0, nil, &size) == noErr, size > 0 else { return [] }
+    var ids = [AudioDeviceID](repeating: 0, count: Int(size) / MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(sysObj, &addr, 0, nil, &size, &ids) == noErr else { return [] }
+    return ids
+}
+
+func outputChannels(_ id: AudioDeviceID) -> Int {
+    var addr = audioAddress(kAudioDevicePropertyStreamConfiguration, kAudioObjectPropertyScopeOutput)
+    var size: UInt32 = 0
+    guard AudioObjectGetPropertyDataSize(id, &addr, 0, nil, &size) == noErr, size > 0 else { return 0 }
+    let raw = UnsafeMutableRawPointer.allocate(byteCount: Int(size), alignment: 16)
+    defer { raw.deallocate() }
+    guard AudioObjectGetPropertyData(id, &addr, 0, nil, &size, raw) == noErr else { return 0 }
+    return UnsafeMutableAudioBufferListPointer(raw.assumingMemoryBound(to: AudioBufferList.self))
+        .reduce(0) { $0 + Int($1.mNumberChannels) }
+}
+
+func defaultInputDevice() -> AudioDeviceID? {
+    var addr = audioAddress(kAudioHardwarePropertyDefaultInputDevice)
+    var id = AudioDeviceID(0)
+    var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    guard AudioObjectGetPropertyData(sysObj, &addr, 0, nil, &size, &id) == noErr, id != 0 else { return nil }
+    return id
+}
+
+/// Which speakers to measure through.
+///
+/// Preferably the ones in the same box as the microphone — a Studio Display's
+/// speakers sit centimetres from its microphone, while the Mac's own speakers
+/// have to carry across the desk and barely register. Otherwise the built-in
+/// speakers, which are always there.
+func speakersForMeasurement() -> AudioDeviceID? {
+    let outputs = allAudioDeviceIDs().filter {
+        outputChannels($0) > 0
+            && !outputIsHeadphoneJack($0)
+            && deviceTransport($0) != kAudioDeviceTransportTypeBluetooth
+            && deviceTransport($0) != kAudioDeviceTransportTypeBluetoothLE
+            && deviceTransport($0) != kAudioDeviceTransportTypeVirtual
+            && deviceTransport($0) != kAudioDeviceTransportTypeAggregate
+    }
+    // "Studio Display-Mikrofon" and "Studio Display-Lautsprecher" share a prefix;
+    // that shared prefix is the physical enclosure, which is what matters here.
+    if let input = defaultInputDevice() {
+        let inputName = deviceName(input)
+        let prefix = inputName.split(separator: "-").first.map(String.init) ?? inputName
+        if prefix.count >= 4, let sameBox = outputs.first(where: { deviceName($0).hasPrefix(prefix) }) {
+            return sameBox
+        }
+    }
+    return outputs.first { deviceTransport($0) == kAudioDeviceTransportTypeBuiltIn }
+}
+
+@discardableResult
+func setDefaultOutputDevice(_ id: AudioDeviceID) -> Bool {
+    var addr = audioAddress(kAudioHardwarePropertyDefaultOutputDevice)
+    var value = id
+    return AudioObjectSetPropertyData(sysObj, &addr, 0, nil,
+                                      UInt32(MemoryLayout<AudioDeviceID>.size), &value) == noErr
+}
+
 /// Loudness of the default input over `seconds`, as RMS. No speaking, no
 /// settings touched — this only listens.
 func inputLoudness(seconds: TimeInterval, whileDoing action: (() -> Void)? = nil) -> Float? {
@@ -223,6 +305,20 @@ func inputLoudness(seconds: TimeInterval, whileDoing action: (() -> Void)? = nil
 
 /// Refuse before touching a single setting if the sound cannot reach the mic.
 func requireTheMicrophoneCanHearTheSpeaker() {
+    // Asked to: put the sound where the microphone can hear it, and remember to
+    // put it back. Without this the check simply refuses on any setup whose
+    // output the mic cannot reach — headphones, an interface, a virtual device.
+    if useBuiltInSpeakers, let speakers = speakersForMeasurement(), speakers != defaultOutputDevice() {
+        originalOutputDevice = defaultOutputDevice()
+        let from = originalOutputDevice.map(deviceName) ?? "?"
+        if setDefaultOutputDevice(speakers) {
+            switchedOutput = true
+            changedSettings = true   // so restoreEverything actually runs
+            Thread.sleep(forTimeInterval: 1.0)
+            print("· output switched from \(from) to \(deviceName(speakers)) for the measurement")
+        }
+    }
+
     guard let out = defaultOutputDevice() else {
         fail("ABORT: no audio output device. Nothing was measured.", code: 2)
     }
@@ -247,6 +343,19 @@ func requireTheMicrophoneCanHearTheSpeaker() {
     }
     print("· output device: \(name)")
 
+    // Turn it up BEFORE listening. The first version measured at whatever volume
+    // happened to be set, so quiet speakers looked exactly like headphones.
+    savedVolume = osa("output volume of (get volume settings)")
+    guard Int(savedVolume) != nil else {
+        fail("""
+             ABORT: macOS will not report the volume of \(name), so it cannot be turned up
+             for the measurement or put back afterwards. Nothing was changed.
+             """, code: 2)
+    }
+    changedSettings = true
+    osa("set volume output volume 60")
+    Thread.sleep(forTimeInterval: 0.5)
+
     // Device type is not proof. Measure it: how loud is the room, and how much
     // louder does it get when the Mac speaks? Real speakers are unmistakable;
     // leakage from a headset is not.
@@ -260,7 +369,10 @@ func requireTheMicrophoneCanHearTheSpeaker() {
     }
     let ratio = quiet > 0 ? spoken / quiet : Float.infinity
     print(String(format: "· audibility: room %.4f, speaking %.4f (%.1fx)", quiet, spoken, ratio))
-    guard spoken >= 0.01, ratio >= 3.0 else {
+    // The ratio is the discriminator: headset leakage does not rise when the Mac
+    // speaks (measured 0.7x through AirPods), real speakers do. The floor only
+    // guards against an input that hears nothing at all.
+    guard spoken >= 0.003, ratio >= 3.0 else {
         fail("""
              ABORT: the microphone does not hear the Mac speaking (room \(String(format: "%.4f", quiet)), \
              speaking \(String(format: "%.4f", spoken))).
@@ -280,17 +392,12 @@ guard hotkeys.contains("doubleRightCmd") else {
 print("=== Check B · press, speak, text arrives ===")
 print("· un-muting and speaking out loud; everything is restored afterwards")
 
-guard Int(savedVolume) != nil else {
-    fail("ABORT: could not read the current output volume, so it cannot be put back. Nothing was changed.", code: 2)
-}
-
-// Before anything is touched: can the microphone hear the speaker at all?
+// Before anything else: pick an output the microphone can hear, turn it up, and
+// prove it actually arrives. Everything this touches is restored.
 requireTheMicrophoneCanHearTheSpeaker()
 
-changedSettings = true
 defaultsWrite("silenceMediaWhileRecording", bool: false)   // otherwise Steneo mutes our own voice
 defaultsWrite("pauseMediaApps", bool: false)
-osa("set volume output volume 45")
 
 // Which bundle is under test. As a release gate this MUST be the freshly built
 // app, not whatever happens to be installed — otherwise the gate blesses a
