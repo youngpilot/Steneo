@@ -2,6 +2,15 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.4
+
+### Fixed
+- **A recording can no longer disappear without a word.** If a recording produced no text — a dead microphone, a model failure, or simply no speech — Steneo used to do *nothing at all*: no text, no history entry, no message, no error, and the audio was thrown away. It looked exactly as though the recording had never happened. Now the reason is named, said out loud, and the audio is kept.
+
+### Added
+- **Kept recordings.** When a recording ends with nothing, its audio stays on disk (the last ten) and appears at the top of the menu with the reason it failed. **Try again** runs it through transcription a second time, and there is a button to show it in Finder or delete it. The menubar mic turns blue until you have looked.
+- **Failures now have names** in the log — `no-samples`, `too-short`, `asr-error`, `empty-result`, `engine-start` — instead of one silent empty result standing in for all five.
+
 ## 1.4.3
 
 ### Fixed

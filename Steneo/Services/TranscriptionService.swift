@@ -12,6 +12,12 @@ private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "Trans
 final class TranscriptionService {
     private(set) var isModelLoaded = false
     private(set) var isTranscribing = false
+    /// Why the last recording produced no text, or nil if it produced text.
+    /// Set once per recording in `stopTranscription`.
+    private(set) var lastFailure: RecordingFailure?
+    /// Whether the batch engine threw on the final pass — the difference between
+    /// "heard nothing" and "the model failed", which used to be the same empty string.
+    private var tailTranscribeThrew = false
     private(set) var currentText = ""
     private(set) var modelLoadingStep = ""
 
@@ -139,6 +145,8 @@ final class TranscriptionService {
         lastConfidence = 0
         minTokenConfidence = 0
         avgTokenConfidence = 0
+        lastFailure = nil
+        tailTranscribeThrew = false
         isCapturing = true
     }
 
@@ -180,10 +188,21 @@ final class TranscriptionService {
         // Finish any in-flight background segment transcriptions, then transcribe the
         // final tail (the WHOLE recording if no cut ever fired) and assemble in order.
         for task in segmentTasks { await task.value }
+        tailTranscribeThrew = false
         let tail = await rawTranscribe(rawSamples, rate: rate)
         var ordered: [String] = []
         for i in 0..<segmentIndex { ordered.append(segmentResults[i] ?? "") }
         finalize(Self.assembleSegments(ordered, tail: tail))
+        // Name the reason instead of returning a bare "". An empty string used to
+        // be the single answer to four very different failures.
+        lastFailure = RecordingFailure.classify(
+            sampleCount: rawSamples.count,
+            minimumSamples: Self.minimumSamples(atRate: rate),
+            asrThrew: tailTranscribeThrew,
+            transcript: currentText)
+        if let lastFailure {
+            logger.error("Recording produced no text — stage \(lastFailure.rawValue, privacy: .public)")
+        }
         return currentText
     }
 
@@ -216,8 +235,16 @@ final class TranscriptionService {
             return Self.removeTrailingStutter(trimmed)
         } catch {
             logger.error("Transcription failed: \(error.localizedDescription)")
+            tailTranscribeThrew = true
             return ""
         }
+    }
+
+    /// Below this there is nothing to transcribe: `rawTranscribe` needs 1600
+    /// samples AFTER resampling to 16 kHz, which is a tenth of a second at any
+    /// input rate.
+    nonisolated static func minimumSamples(atRate rate: Double) -> Int {
+        rate > 0 ? Int((rate * 0.1).rounded(.up)) : 1600
     }
 
     /// Apply the shared text pipeline (word replacements + voice commands) ONCE over

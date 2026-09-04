@@ -13,6 +13,10 @@
 		A10001000000000000000302 /* AudioEngineRebuildPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000302 /* AudioEngineRebuildPolicy.swift */; };
 		A10001000000000000000303 /* AudioDeviceResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000303 /* AudioDeviceResolverTests.swift */; };
 		A10001000000000000000304 /* AudioEngineRebuildPolicyTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000304 /* AudioEngineRebuildPolicyTests.swift */; };
+		A10001000000000000000305 /* RecordingFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000305 /* RecordingFailure.swift */; };
+		A10001000000000000000306 /* RecoveryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000306 /* RecoveryStore.swift */; };
+		A10001000000000000000307 /* RecordingFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000307 /* RecordingFailureTests.swift */; };
+		A10001000000000000000308 /* RecoveryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000308 /* RecoveryStoreTests.swift */; };
 		A10001000000000000000004 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000004 /* AudioCaptureService.swift */; };
 		A10001000000000000000005 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000005 /* TranscriptionService.swift */; };
 		A10001000000000000000006 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000006 /* HotkeyService.swift */; };
@@ -55,6 +59,10 @@
 		A10002000000000000000302 /* AudioEngineRebuildPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngineRebuildPolicy.swift; sourceTree = "<group>"; };
 		A10002000000000000000303 /* AudioDeviceResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceResolverTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000304 /* AudioEngineRebuildPolicyTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioEngineRebuildPolicyTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000305 /* RecordingFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFailure.swift; sourceTree = "<group>"; };
+		A10002000000000000000306 /* RecoveryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryStore.swift; sourceTree = "<group>"; };
+		A10002000000000000000307 /* RecordingFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFailureTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000308 /* RecoveryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryStoreTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000004 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		A10002000000000000000005 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		A10002000000000000000006 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
@@ -137,6 +145,8 @@
 				A10002000000000000000207 /* InsertionModeTests.swift */,
 				A10002000000000000000303 /* AudioDeviceResolverTests.swift */,
 				A10002000000000000000304 /* AudioEngineRebuildPolicyTests.swift */,
+				A10002000000000000000307 /* RecordingFailureTests.swift */,
+				A10002000000000000000308 /* RecoveryStoreTests.swift */,
 				A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */,
 				A10002000000000000000208 /* OutputProfileTests.swift */,
 				A10002000000000000000202 /* EncryptionServiceTests.swift */,
@@ -186,6 +196,8 @@
 			children = (
 				A10002000000000000000301 /* AudioDeviceResolver.swift */,
 				A10002000000000000000302 /* AudioEngineRebuildPolicy.swift */,
+				A10002000000000000000305 /* RecordingFailure.swift */,
+				A10002000000000000000306 /* RecoveryStore.swift */,
 				A10002000000000000000004 /* AudioCaptureService.swift */,
 				A10002000000000000000005 /* TranscriptionService.swift */,
 				A10002000000000000000006 /* HotkeyService.swift */,
@@ -324,6 +336,8 @@
 				A10001000000000000000002 /* AppDelegate.swift in Sources */,
 				A10001000000000000000301 /* AudioDeviceResolver.swift in Sources */,
 				A10001000000000000000302 /* AudioEngineRebuildPolicy.swift in Sources */,
+				A10001000000000000000305 /* RecordingFailure.swift in Sources */,
+				A10001000000000000000306 /* RecoveryStore.swift in Sources */,
 				A10001000000000000000004 /* AudioCaptureService.swift in Sources */,
 				A10001000000000000000005 /* TranscriptionService.swift in Sources */,
 				A10001000000000000000006 /* HotkeyService.swift in Sources */,
@@ -357,6 +371,8 @@
 				A10001000000000000000207 /* InsertionModeTests.swift in Sources */,
 				A10001000000000000000303 /* AudioDeviceResolverTests.swift in Sources */,
 				A10001000000000000000304 /* AudioEngineRebuildPolicyTests.swift in Sources */,
+				A10001000000000000000307 /* RecordingFailureTests.swift in Sources */,
+				A10001000000000000000308 /* RecoveryStoreTests.swift in Sources */,
 				A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */,
 				A10001000000000000000208 /* OutputProfileTests.swift in Sources */,
 				A10001000000000000000202 /* EncryptionServiceTests.swift in Sources */,
@@ -497,7 +513,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -505,7 +521,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -520,7 +536,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -528,7 +544,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -541,11 +557,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -559,11 +575,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 45;
+				CURRENT_PROJECT_VERSION = 46;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.3;
+				MARKETING_VERSION = 1.4.4;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;

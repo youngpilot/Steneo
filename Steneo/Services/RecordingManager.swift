@@ -18,6 +18,7 @@ final class RecordingManager {
     private let hotkeyService = HotkeyService()
     private let systemAudio = SystemAudioService.shared
     let historyService = HistoryService.shared
+    let recoveryStore = RecoveryStore.shared
 
     private(set) var isRecording = false
     private(set) var isStarting = false   // press registered, engine spinning up (shows orange — arming)
@@ -36,6 +37,9 @@ final class RecordingManager {
     /// A file transcription finished and is waiting to be seen — drives the green
     /// menubar badge. Cleared when the popover opens (or a new activity starts).
     private(set) var fileTranscriptionDone = false
+    /// A recording produced no text and its audio was kept — drives the menubar
+    /// badge, so the failure is visible instead of sitting in a closed popover.
+    private(set) var hasRecoveryWaiting = false
     private(set) var statusMessage: StatusMessage?
     private var statusClearTask: Task<Void, Never>?
     private var recordingStartTime: Date?
@@ -292,6 +296,7 @@ final class RecordingManager {
             // Never fail silently again: without this the mic just blinked and
             // went back to white, which reads as "the shortcut is broken".
             showStatus("Microphone unavailable — check your input device", isError: true)
+            logger.error("Empty recording (\(RecordingFailure.engineStart.rawValue, privacy: .public)) — nothing to keep")
         }
         logger.error("Capture failed: \(error.localizedDescription)")
     }
@@ -367,6 +372,9 @@ final class RecordingManager {
 
             outputService.insertText(output)
             historyService.addEntry(output, duration: duration)
+        } else {
+            noteEmptyRecording(reason: transcriptionService.lastFailure ?? .emptyResult,
+                               samples: recorded.samples, rate: recorded.rate)
         }
 
         // Wait for all pending pastes to complete before ending session.
@@ -390,6 +398,22 @@ final class RecordingManager {
         }
 
         outputService.endSession()
+    }
+
+    /// A recording that produced nothing must never just disappear: keep the
+    /// audio, name the reason, and say so where it can be seen.
+    private func noteEmptyRecording(reason: RecordingFailure, samples: [Float], rate: Double) {
+        let kept = recoveryStore.save(samples: samples, rate: rate, reason: reason)
+        logger.error("Empty recording (\(reason.rawValue, privacy: .public)) — \(kept == nil ? "nothing kept" : "audio kept", privacy: .public)")
+        showStatus(reason.message, isError: true)
+        if kept != nil { hasRecoveryWaiting = true }
+    }
+
+    /// Transcribe a kept recording again — same path as any dropped audio file,
+    /// so there is no second transcription route to keep working.
+    func retryRecovered(_ recording: RecoveredRecording) {
+        hasRecoveryWaiting = false
+        transcribeFile(recording.url)
     }
 
     // MARK: - File transcription
@@ -439,6 +463,7 @@ final class RecordingManager {
     /// menubar badge (the user has come to look).
     func markWindowOpened() {
         fileTranscriptionDone = false
+        hasRecoveryWaiting = false
     }
 
     /// Show a transient one-line status (auto-dismissed). Errors linger a little
