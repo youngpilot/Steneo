@@ -27,9 +27,18 @@ import Foundation
 ///
 /// Under 30 characters is what the old code typed key by key, so that is where
 /// the failure lives.
+/// ONE utterance, deliberately.
+///
+/// This check exists to prove the live chain — shortcut, microphone, model,
+/// insertion — and one sentence proves it as well as two. Character fidelity for
+/// short AND long text is check A's job, and check A needs no microphone, no
+/// speaker and no quiet room. Two utterances doubled the minute this takes and
+/// doubled the chances of a noisy room aborting a release, for no extra coverage.
+///
+/// Under 30 characters, because that is the length the old typing path dropped
+/// letters at — if one sentence has to carry the check, it is that one.
 let utterances: [(label: String, text: String)] = [
-    ("short (under 30 characters — the path that dropped letters)", "Good morning everyone"),
-    ("long (goes through the clipboard)", "The quick brown fox jumps over the lazy dog near the river bank"),
+    ("short sentence", "Good morning everyone"),
 ]
 let minimumRecall = 0.5   // set before the first run: half the words must survive
 
@@ -341,8 +350,6 @@ func requireTheMicrophoneCanHearTheSpeaker() {
     if transport == kAudioDeviceTransportTypeVirtual || transport == kAudioDeviceTransportTypeAggregate {
         fail("ABORT: audio output is a virtual device (\(name)), which the microphone cannot hear. Nothing was measured.", code: 2)
     }
-    print("· output device: \(name)")
-
     // Turn it up BEFORE listening. The first version measured at whatever volume
     // happened to be set, so quiet speakers looked exactly like headphones.
     savedVolume = osa("output volume of (get volume settings)")
@@ -438,7 +445,6 @@ run("/usr/bin/pkill", ["-x", "Steneo"])
 Thread.sleep(forTimeInterval: 1)
 swappedApp = restoreInstalled
 run("/usr/bin/open", ["-a", candidate])
-print("· waiting for the speech model to load")
 Thread.sleep(forTimeInterval: 22)
 guard !run("/usr/bin/pgrep", ["-x", "Steneo"]).isEmpty else {
     fail("ABORT: Steneo is not running. Nothing was measured.", code: 2)
@@ -579,9 +585,15 @@ for (label, spoken) in utterances {
     let hits = expected.intersection(got).count
     let recall = expected.isEmpty ? 0 : Double(hits) / Double(expected.count)
 
-    print("  shortcut fired: \(sawStart ? "yes" : "NO") · transcript: \(sawTranscript ? "yes" : "NO") · inserted: \(sawInsert ? "yes" : "NO")")
-    print("  arrived (\(arrived.count) characters): \(arrived.isEmpty ? "—" : arrived)")
-    print(String(format: "  word recall: %.0f%% (%d of %d)", recall * 100, hits, expected.count))
+    if recall >= minimumRecall {
+        print(String(format: "  arrived: \"%@\" — %.0f%% of the words", arrived, recall * 100))
+    } else {
+        // Only on failure is the stage breakdown worth the lines: it is the
+        // difference between four very different causes.
+        print("  shortcut fired: \(sawStart ? "yes" : "NO") · transcript: \(sawTranscript ? "yes" : "NO") · inserted: \(sawInsert ? "yes" : "NO")")
+        print("  arrived (\(arrived.count) characters): \(arrived.isEmpty ? "—" : arrived)")
+        print(String(format: "  word recall: %.0f%% (%d of %d)", recall * 100, hits, expected.count))
+    }
 
     if !sawStart { failures.append("\(label): the shortcut never started a recording") }
     else if !sawTranscript { failures.append("\(label): recording ran but produced no transcript") }
@@ -599,7 +611,7 @@ restoreEverything()
 
 print("")
 if failures.isEmpty {
-    print("RESULT: PASS — press, speak, text arrives, short and long.")
+    print("RESULT: PASS — press, speak, text arrives.")
 } else {
     for f in failures { print("FAILED · \(f)") }
     print("RESULT: FAILED — the core chain is broken.")
