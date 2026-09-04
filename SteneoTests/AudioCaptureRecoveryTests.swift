@@ -87,4 +87,61 @@ final class AudioCaptureRecoveryTests: XCTestCase {
 
         XCTAssertNil(start(service, "after"), "must still start after a configuration change")
     }
+
+    // MARK: - The storm, against the real service
+
+    /// Drains everything queued on the service's serial queue by posting one more
+    /// notification and waiting for its handler to finish.
+    private func settle(_ seconds: TimeInterval = 0.6) {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
+    }
+
+    /// What actually happened on 04.09.2026: a flood of configuration-change
+    /// notifications while the input was in fact unchanged. The 1.4.1 handler
+    /// rebuilt on every single one.
+    func testAFloodOfNotificationsAboutNothingRebuildsNothing() {
+        let service = AudioCaptureService()
+        for _ in 0..<200 {
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
+        }
+        settle()
+        XCTAssertEqual(service.rebuildCountForTesting, 0,
+                       "the input never changed; the old handler rebuilt 200 times")
+    }
+
+    /// And when the input really does keep changing, the fuse has to cap it and
+    /// the user has to be told — not a microphone that quietly does nothing.
+    func testRelentlessRealChangeIsCappedAndReported() throws {
+        let service = AudioCaptureService()
+        // Prime the input chain: with nothing built and nothing recording there
+        // is deliberately nothing to rebuild, so an unprimed service would pass
+        // this test by doing nothing at all.
+        service.primeInputChainForTesting()
+        try XCTSkipUnless(service.hasInputChainForTesting,
+                          "this Mac gave the test runner no input format to build a chain from")
+
+        let counter = Counter()
+        service.signatureOverrideForTesting = { "device-\(counter.next())" }
+        let told = expectation(description: "input reported unavailable")
+        told.assertForOverFulfill = false
+        service.onInputUnavailable = { _ in told.fulfill() }
+
+        for _ in 0..<200 {
+            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
+        }
+        wait(for: [told], timeout: 5)
+        settle()
+        XCTAssertLessThanOrEqual(service.rebuildCountForTesting, 10,
+                                 "200 real changes must not mean 200 rebuilds")
+        XCTAssertGreaterThan(service.rebuildCountForTesting, 0,
+                             "positive control: a real change must rebuild at least once")
+    }
+
+    private final class Counter: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = 0
+        func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
+    }
+
 }

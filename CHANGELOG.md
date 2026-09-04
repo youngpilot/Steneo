@@ -2,6 +2,15 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.3
+
+### Fixed
+- **The microphone no longer goes deaf after a device is unplugged.** Steneo used to let macOS pick the input device implicitly, which meant the audio engine remembered a device *number*. Those numbers are temporary: unplug a USB microphone or let a display re-enumerate, and the same microphone comes back as a different number. The remembered one then pointed at nothing, the engine fell back to a device with no input at all, and every recording failed the moment it started — the start sound played and the menubar mic went straight back to white. Steneo now names the input device explicitly, by its permanent identifier, and resolves it fresh at every single recording: your chosen device, then the system default, then the Mac's own microphone. A device that disappears no longer takes recording with it.
+- **The recovery from 1.4.1 could turn into a loop of its own.** It rebuilt the audio input on *every* configuration message from the system, with nothing to stop it. In one measured case that ran at nine rebuilds per second for over four hours and made the microphone unusable. Rebuilding now happens only when the input has genuinely changed, at most twice a second, and gives up with a visible message instead of looping — and it comes back by itself as soon as a recording succeeds.
+- **Steneo no longer touches your audio hardware when it isn't recording.** It used to warm up the audio engine at launch and keep it warm between recordings. Warming it opens an input device, and an open input device pulls a Bluetooth headset out of high-quality playback into the mono call profile — which is why AirPods could sound wrong for as long as Steneo was simply *running*. The microphone is now opened when a recording starts and released the moment it stops. Idle Steneo holds nothing. The first moment of a recording costs about 200 ms more, which is what the orange arming icon covers.
+- **Bluetooth headsets are never chosen as the microphone on your behalf.** If your AirPods are the system's default input, Steneo quietly uses the Mac's own microphone instead, so recording never degrades what you are listening to. Pick the headset explicitly and Steneo uses it — that is your call to make, not its.
+- **"No microphone found" is now something Steneo says.** A Mac with no usable input used to produce a generic engine failure; it now names the actual problem.
+
 ## 1.4.2
 
 ### Fixed

@@ -89,6 +89,13 @@ final class RecordingManager {
             }
         }
 
+        // The audio input can fail while nothing is recording (a device is
+        // pulled, the input keeps reconfiguring). Say so instead of leaving a
+        // microphone that silently does nothing.
+        audioCaptureService.onInputUnavailable = { [weak self] message in
+            Task { @MainActor in self?.showStatus(message, isError: true) }
+        }
+
         // Wire silence timeout → auto-stop
         transcriptionService.onSilenceTimeout = { [weak self] in
             Task { @MainActor in
@@ -123,11 +130,10 @@ final class RecordingManager {
         // no load latency.
         SoundFeedback.preload()
 
-        // Warm up the audio engine so the first recording starts fast — only if
-        // the mic is already granted, so we never touch it prematurely.
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
-            audioCaptureService.prepareEngine()
-        }
+        // No audio warm-up. Touching the input node opens a device, and an open
+        // input device drags a Bluetooth headset into the mono call profile —
+        // which made simply having Steneo running degrade the user's AirPods.
+        // The engine is built when a recording starts and released when it ends.
 
         // Daily update check (no-op in Manual mode; connectivity-driven, at most
         // one GET per 24h). Touching the singleton also starts its net monitor.
@@ -280,6 +286,8 @@ final class RecordingManager {
         if error == .microphoneDenied {
             let status = AVCaptureDevice.authorizationStatus(for: .audio)
             needsMicrophone = (status == .denied || status == .restricted)
+        } else if error == .noInputDevice {
+            showStatus("No microphone found — check your input device", isError: true)
         } else {
             // Never fail silently again: without this the mic just blinked and
             // went back to white, which reads as "the shortcut is broken".
