@@ -21,6 +21,9 @@ enum RecordingFailure: String, Equatable, Sendable, CaseIterable {
     case asrError = "asr-error"
     /// Audio was captured and the model ran, but heard no words.
     case emptyResult = "empty-result"
+    /// Audio stopped arriving while the recording was still running — the engine
+    /// died underneath it. Whatever was captured before that is kept.
+    case microphoneWentSilent = "mic-went-silent"
 
     /// What to tell the user. One line, no jargon, and it never blames them.
     var message: String {
@@ -30,6 +33,7 @@ enum RecordingFailure: String, Equatable, Sendable, CaseIterable {
         case .tooShort: "That was too short to transcribe."
         case .asrError: "Transcription failed — the recording is kept."
         case .emptyResult: "No speech found — the recording is kept."
+        case .microphoneWentSilent: "The microphone went silent — recording stopped, audio kept."
         }
     }
 
@@ -38,7 +42,7 @@ enum RecordingFailure: String, Equatable, Sendable, CaseIterable {
     var hasRecoverableAudio: Bool {
         switch self {
         case .engineStart, .noSamples, .tooShort: false
-        case .asrError, .emptyResult: true
+        case .asrError, .emptyResult, .microphoneWentSilent: true
         }
     }
 

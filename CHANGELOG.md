@@ -2,6 +2,13 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.5
+
+### Fixed
+- **A red microphone now always means your audio is actually being captured.** If the audio engine died underneath a running recording — a device pulled out, a failed recovery after the input changed — nothing noticed. The icon stayed red and you kept talking into a recording that was capturing nothing. Steneo now watches the audio actually arriving and ends the recording within two seconds if it stops, says so, and keeps whatever was captured before that.
+- **Recording could capture nothing at all, silently.** Since 1.4.3 Steneo names the input device explicitly before each recording — and selecting it renegotiates the hardware, so a microphone the system was running at 44.1 kHz comes back at 48 kHz. Steneo kept asking the audio engine for the format it had *before* that, listened on the wrong one, and received not a single audio buffer. The start sound played, the icon went red, and the recording was empty. Measured: zero frames in a second where the correct format gives 48 000. This affected 1.4.3 and 1.4.4.
+- **A rare hang is gone.** Reading the recorded audio made the app wait on its audio thread, while the audio thread could need the main thread to finish — the two could wait for each other for ever. It needed a device change to land at the same moment as a recording stopping, which is exactly the situation the rest of this release is about. Found by a test that hung instead of failing; the rule is now checked in the source before every release.
+
 ## 1.4.4
 
 ### Fixed

@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION="1.4.4"
+VERSION="1.4.5"
 DIST_NAME="Steneo"     # user-facing app + DMG name
 BUILD_NAME="Steneo"   # internal Xcode product/scheme name (unchanged on purpose)
 TEAM_ID="${STENEO_TEAM_ID:?Set STENEO_TEAM_ID env var (Apple Developer Team ID)}"
@@ -37,6 +37,16 @@ case "$answer" in
     *) echo "Aborted before anything was touched."; exit 1 ;;
 esac
 export STENEO_GATE_CONFIRM=1
+echo ""
+
+# --- Source invariants that a test cannot check ------------------------------
+# A regression here would HANG the test suite rather than fail it, so it is
+# checked in the source before anything is built.
+echo "=== Source check: audio threading ==="
+if ! "$PROJECT_DIR/scripts/check-audio-threading.sh"; then
+    echo "ABORT: the main thread can block on the audio queue. Nothing was released."
+    exit 1
+fi
 echo ""
 
 # --- Gate A: does text survive insertion character for character? ------------

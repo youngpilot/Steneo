@@ -54,11 +54,19 @@ final class AudioCaptureService: @unchecked Sendable {
     /// Whether an input chain exists at all. A test that means to exercise
     /// rebuilding has to know its priming worked, or a silent no-op reads as a
     /// pass for the wrong reason.
-    var hasInputChainForTesting: Bool { engineQueue.sync { builtSignature != nil } }
     /// Builds an input chain on purpose. Production never does this outside a
     /// recording — that is the point of 1.4.3 — but a test that means to
     /// exercise rebuilding needs something to rebuild.
-    func primeInputChainForTesting() { engineQueue.sync { refreshTapIfNeeded() } }
+    ///
+    /// Asynchronous, and NOT `engineQueue.sync`: building a chain touches
+    /// `engine.inputNode`, which dispatches to the main queue, so a caller that
+    /// blocks the main thread waiting on this queue deadlocks.
+    func primeInputChainForTesting(completion: @escaping @Sendable (Bool) -> Void) {
+        engineQueue.async { [self] in
+            refreshTapIfNeeded()
+            completion(builtSignature != nil)
+        }
+    }
     #endif
     private let targetFormat = AVAudioFormat(
         commonFormat: .pcmFormatFloat32, sampleRate: 16000, channels: 1, interleaved: false)!
@@ -86,6 +94,30 @@ final class AudioCaptureService: @unchecked Sendable {
     // Raw recorded audio (ch0, at the input sample rate) for ONE clean conversion
     // at stop — per-buffer resampling warms its filter each clip and garbles short
     // ones. All access serialized on engineQueue (no render-thread lock).
+    /// When the last buffer reached the tap. Written on the render thread and
+    /// read from the main actor, so it gets its own small lock rather than
+    /// `engineQueue` — a `sync` onto that queue from the main actor would block
+    /// behind whatever engine work is queued.
+    private let heartbeatLock = NSLock()
+    private var lastBufferAt: TimeInterval = 0
+
+    /// How long ago audio last arrived, or nil if none has since capture started.
+    /// This is what makes "the microphone went deaf" observable at all.
+    var secondsSinceLastBuffer: TimeInterval? {
+        heartbeatLock.lock()
+        defer { heartbeatLock.unlock() }
+        guard lastBufferAt > 0 else { return nil }
+        return Date().timeIntervalSinceReferenceDate - lastBufferAt
+    }
+
+    // The raw recording is guarded by its OWN lock, deliberately not by
+    // `engineQueue`. Reading it used to be `engineQueue.sync` from the main actor,
+    // and `engineQueue` touches `engine.inputNode` — whose first access dispatches
+    // SYNCHRONOUSLY to the main queue. Main waits for the queue, the queue waits
+    // for main, and the app is gone. Found by a hung test on 04.09.2026, and
+    // reachable in the product whenever a device change rebuilds the engine while
+    // a segment cut or a stop reads the buffer.
+    private let bufferLock = NSLock()
     private var rawRecording: [Float] = []
     private var rawRate: Double = 0
     private var segmentStart = 0   // index of the first sample not yet handed off to a segment cut
@@ -169,6 +201,9 @@ final class AudioCaptureService: @unchecked Sendable {
                 try engine.start()
                 logger.info("Capture resumed on the new input device")
             } catch {
+                // No second mechanism needed: with the engine down no buffers
+                // arrive, and the watchdog ends the recording within two seconds
+                // instead of leaving a red icon over a dead microphone.
                 logger.error("Could not resume capture after the device change: \(error.localizedDescription, privacy: .public)")
             }
         }
@@ -289,9 +324,12 @@ final class AudioCaptureService: @unchecked Sendable {
                 // here: the engine is stopped and the tap is inactive, so no
                 // render-thread callback can be touching the converter.
                 converter?.reset()
+                bufferLock.lock()
                 rawRecording = []
                 rawRate = 0
                 segmentStart = 0
+                bufferLock.unlock()
+                heartbeatLock.lock(); lastBufferAt = 0; heartbeatLock.unlock()
                 active = true
                 if !engine.isRunning {
                     engine.prepare()   // nothing is kept warm any more — always needed here
@@ -366,24 +404,24 @@ final class AudioCaptureService: @unchecked Sendable {
     /// cut fired) + its rate, for the final single-shot conversion at stop. Clears
     /// the buffer.
     func takeRecording() -> (samples: [Float], rate: Double) {
-        engineQueue.sync {
-            let tail = segmentStart < rawRecording.count ? Array(rawRecording[segmentStart...]) : []
-            rawRecording = []
-            segmentStart = 0
-            return (tail, rawRate)
-        }
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        let tail = segmentStart < rawRecording.count ? Array(rawRecording[segmentStart...]) : []
+        rawRecording = []
+        segmentStart = 0
+        return (tail, rawRate)
     }
 
     /// Hand over the raw audio recorded since the last cut WITHOUT clearing the
     /// buffer (advances the segment marker) — for mid-recording incremental
     /// transcription of finished segments.
     func takeSegment() -> (samples: [Float], rate: Double) {
-        engineQueue.sync {
-            guard segmentStart < rawRecording.count else { return ([], rawRate) }
-            let slice = Array(rawRecording[segmentStart...])
-            segmentStart = rawRecording.count
-            return (slice, rawRate)
-        }
+        bufferLock.lock()
+        defer { bufferLock.unlock() }
+        guard segmentStart < rawRecording.count else { return ([], rawRate) }
+        let slice = Array(rawRecording[segmentStart...])
+        segmentStart = rawRecording.count
+        return (slice, rawRate)
     }
 
     /// (Re)install the tap if it's missing or the input format changed since last
@@ -395,7 +433,16 @@ final class AudioCaptureService: @unchecked Sendable {
         applyInputDevice()
         let signature = currentInputSignature()
         let input = engine.inputNode
-        let inputFormat = input.outputFormat(forBus: 0)
+        // `inputFormat`, NOT `outputFormat`. Selecting the device renegotiates the
+        // hardware — a microphone the system was running at 44.1 kHz comes back at
+        // 48 kHz — while `outputFormat` keeps returning the value the node cached
+        // BEFORE the device was set. A tap installed with that stale format is
+        // never called: AVFoundation's own precondition is
+        // `format.sampleRate == inputHWFormat.sampleRate`, and it fails silently.
+        // Measured 04.09.2026: tap 44100 against hardware 48000 gave 0 frames in a
+        // second, where the hardware format gave 48000.
+        let hardwareFormat = input.inputFormat(forBus: 0)
+        let inputFormat = hardwareFormat.sampleRate > 0 ? hardwareFormat : input.outputFormat(forBus: 0)
         guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else { return } // no device yet
         // The signature has to be part of this, not just the format: switching
         // from the display microphone to the built-in one keeps 48 kHz mono, so
@@ -421,6 +468,9 @@ final class AudioCaptureService: @unchecked Sendable {
 
     private func handleTap(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat, targetFormat: AVAudioFormat) {
         guard active, let conv = converter else { return }
+        heartbeatLock.lock()
+        lastBufferAt = Date().timeIntervalSinceReferenceDate
+        heartbeatLock.unlock()
         // Generous output capacity (round up + headroom) so the resampler output is
         // never truncated.
         let ratio = targetFormat.sampleRate / inputFormat.sampleRate
@@ -475,16 +525,19 @@ final class AudioCaptureService: @unchecked Sendable {
         let rawCount = Int(buffer.frameLength)
         if let raw = buffer.floatChannelData, rawCount > 0 {
             let chunk = Array(UnsafeBufferPointer(start: raw[0], count: rawCount))
-            let rate = inputFormat.sampleRate
-            engineQueue.async { [self] in
-                rawRecording.append(contentsOf: chunk)
-                rawRate = rate
-                if rawRecording.count > Self.maxRaw {
-                    let drop = rawRecording.count - Self.maxRaw
-                    rawRecording.removeFirst(drop)
-                    segmentStart = max(0, segmentStart - drop)   // keep the marker valid after trimming
-                }
+            // Under the buffer's own lock. This tap thread already allocates (the
+            // copy above), so a short lock is cheaper than the queue hop it
+            // replaces — and it keeps the buffer off `engineQueue`, which is what
+            // made reading it from the main actor a deadlock.
+            bufferLock.lock()
+            rawRecording.append(contentsOf: chunk)
+            rawRate = inputFormat.sampleRate
+            if rawRecording.count > Self.maxRaw {
+                let drop = rawRecording.count - Self.maxRaw
+                rawRecording.removeFirst(drop)
+                segmentStart = max(0, segmentStart - drop)   // keep the marker valid after trimming
             }
+            bufferLock.unlock()
         }
     }
 }

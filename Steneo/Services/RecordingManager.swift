@@ -49,6 +49,13 @@ final class RecordingManager {
     /// ASR can't be torn down cleanly mid-flight, so we let it come up and then
     /// stop it cleanly (honored in beginCapture).
     private var stopAfterStart = false
+    /// Ends a recording whose microphone has gone deaf. Red must mean "your audio
+    /// is being captured"; without this it could mean "the engine died and nobody
+    /// noticed".
+    private var watchdogTask: Task<Void, Never>?
+    /// Set when the watchdog is the reason a recording ended, so the report names
+    /// what actually happened instead of "no speech found".
+    private var pendingFailureOverride: RecordingFailure?
 
     /// The output profile resolved when this recording STARTED. Resolved once, on
     /// purpose: the user can switch apps while speaking, and the text belongs to
@@ -184,6 +191,7 @@ final class RecordingManager {
         // Instant acknowledgement the moment the shortcut registers — red icon
         // + start sound — BEFORE the audio engine spins up (~200ms HAL setup).
         stopAfterStart = false
+        pendingFailureOverride = nil
         fileTranscriptionDone = false   // a new recording supersedes a stale "ready" badge
         isStarting = true
         needsMicrophone = false
@@ -263,6 +271,7 @@ final class RecordingManager {
         isRecording = true   // RED == recording — only now that the mic is live
         recordingStartTime = Date()
         needsAccessibility = !AXIsProcessTrusted()
+        startDeafnessWatchdog()
 
         // Stop was pressed during startup — bring it down cleanly now (before
         // muting media, so there's no audible blip).
@@ -303,6 +312,8 @@ final class RecordingManager {
 
     func stopRecording() async {
         guard isRecording else { return }
+        watchdogTask?.cancel()
+        watchdogTask = nil
         audioCaptureService.stopCapture()
         isRecording = false
         inputLevel = 0.0
@@ -361,6 +372,9 @@ final class RecordingManager {
             finalText = await FormattingService.shared.format(finalText, mode: formatMode)
         }
 
+        // A watchdog stop that still produced text is not a failure to report.
+        if !finalText.isEmpty { pendingFailureOverride = nil }
+
         // Paste the COMPLETE transcript (with prefix/suffix) once — reliable,
         // with no chunk-boundary artifacts from incremental pasting.
         var output = finalText
@@ -373,8 +387,9 @@ final class RecordingManager {
             outputService.insertText(output)
             historyService.addEntry(output, duration: duration)
         } else {
-            await noteEmptyRecording(reason: transcriptionService.lastFailure ?? .emptyResult,
-                                     samples: recorded.samples, rate: recorded.rate)
+            let reason = pendingFailureOverride ?? transcriptionService.lastFailure ?? .emptyResult
+            pendingFailureOverride = nil
+            await noteEmptyRecording(reason: reason, samples: recorded.samples, rate: recorded.rate)
         }
 
         // Wait for all pending pastes to complete before ending session.
@@ -398,6 +413,44 @@ final class RecordingManager {
         }
 
         outputService.endSession()
+    }
+
+    /// Watch the audio actually arriving, and end the recording if it stops.
+    ///
+    /// The engine can die under a live recording — a device pulled, a resume after
+    /// a configuration change that fails. Nothing else notices: `isRecording` stays
+    /// true and the icon stays red over a microphone that hears nothing.
+    private func startDeafnessWatchdog() {
+        watchdogTask?.cancel()
+        let startedAt = Date()
+        watchdogTask = Task { @MainActor [weak self] in
+            let watchdog = DeafMicrophoneWatchdog()
+            var reportedFirstBuffer = false
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, let self, self.isRecording else { return }
+                let gap = self.audioCaptureService.secondsSinceLastBuffer
+                // Log the first observed gap once per recording. The watchdog rests
+                // entirely on this number moving, and the unit test that proves it
+                // needs a microphone the test runner does not always have — so the
+                // shipping build says it out loud instead.
+                if !reportedFirstBuffer, let gap {
+                    reportedFirstBuffer = true
+                    logger.info("Audio is arriving — first heartbeat gap \(gap, format: .fixed(precision: 3), privacy: .public)s")
+                }
+                let verdict = watchdog.verdict(
+                    secondsSinceLastBuffer: gap,
+                    secondsSinceStart: Date().timeIntervalSince(startedAt))
+                guard verdict == .deaf else { continue }
+                logger.error("No audio for \(watchdog.silenceLimit, privacy: .public)s while recording — the microphone went deaf; stopping")
+                self.pendingFailureOverride = .microphoneWentSilent
+                // Clear first: stopRecording cancels this task, and being
+                // cancelled mid-stop would skip its paste drain.
+                self.watchdogTask = nil
+                await self.stopRecording()
+                return
+            }
+        }
     }
 
     /// A recording that produced nothing must never just disappear: keep the

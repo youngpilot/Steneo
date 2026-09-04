@@ -117,8 +117,15 @@ final class AudioCaptureRecoveryTests: XCTestCase {
         // Prime the input chain: with nothing built and nothing recording there
         // is deliberately nothing to rebuild, so an unprimed service would pass
         // this test by doing nothing at all.
-        service.primeInputChainForTesting()
-        try XCTSkipUnless(service.hasInputChainForTesting,
+        // `settle` and not `wait(for:)`: building a chain touches
+        // `AVAudioEngine.inputNode`, which dispatches to the MAIN QUEUE. Only a
+        // spinning run loop services that queue — an expectation wait does not,
+        // so the completion would never arrive. Same mechanism as the deadlock
+        // this release fixes, seen from the other side.
+        let built = BoolBox()
+        service.primeInputChainForTesting { built.set($0) }
+        settle(1.5)
+        try XCTSkipUnless(built.value == true,
                           "this Mac gave the test runner no input format to build a chain from")
 
         let counter = Counter()
@@ -136,6 +143,13 @@ final class AudioCaptureRecoveryTests: XCTestCase {
                                  "200 real changes must not mean 200 rebuilds")
         XCTAssertGreaterThan(service.rebuildCountForTesting, 0,
                              "positive control: a real change must rebuild at least once")
+    }
+
+    private final class BoolBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var stored: Bool?
+        func set(_ v: Bool) { lock.lock(); stored = v; lock.unlock() }
+        var value: Bool? { lock.lock(); defer { lock.unlock() }; return stored }
     }
 
     private final class Counter: @unchecked Sendable {

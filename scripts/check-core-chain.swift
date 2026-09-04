@@ -541,6 +541,21 @@ for (label, spoken) in utterances {
         .replacingOccurrences(of: "T", with: " ")
     let logText = run("/usr/bin/log", ["show", "--start", since, "--info",
                                        "--predicate", "subsystem == \"com.youngpilot.Steneo\"", "--style", "compact"])
+    // The build under test lives at a different path than the installed app, so
+    // macOS treats it as a different app for microphone access. Denied means this
+    // check has nothing to measure — it says NOTHING about the build. Reporting it
+    // as "the core chain is broken" is the same false accusation this gate has
+    // already made four times in other forms.
+    if logText.contains("Microphone access is denied") {
+        fail("""
+             ABORT: macOS denies the microphone to the build under test
+             (\(candidate)).
+             It is a different bundle path than the installed app, so it needs its own
+             permission. Grant it in System Settings > Privacy & Security > Microphone,
+             or run this check against /Applications/Steneo.app after installing.
+             NOTHING WAS MEASURED — this says nothing about the build.
+             """, code: 2)
+    }
     let sawStart = logText.contains("Target app")
     let sawTranscript = logText.contains("final transcript")
     let sawInsert = logText.contains("insertText")
