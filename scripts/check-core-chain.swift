@@ -359,16 +359,36 @@ func requireTheMicrophoneCanHearTheSpeaker() {
     // Device type is not proof. Measure it: how loud is the room, and how much
     // louder does it get when the Mac speaks? Real speakers are unmistakable;
     // leakage from a headset is not.
-    guard let quiet = inputLoudness(seconds: 1.0) else {
-        fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+    // The floor over THREE short windows, taking the quietest. A single window
+    // measured right after switching the output device catches the switch pop, a
+    // notification, or someone saying a word — and a poisoned floor makes real
+    // speakers look like headphones. That happened on the first run of this check
+    // against 1.4.4: floor 0.0219 where the room was actually 0.0010.
+    var floors: [Float] = []
+    for _ in 0..<3 {
+        guard let sample = inputLoudness(seconds: 0.6) else {
+            fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+        }
+        floors.append(sample)
     }
-    guard let spoken = inputLoudness(seconds: 3.0, whileDoing: {
-        run("/usr/bin/say", ["-r", "170", "Steneo microphone check"])
-    }) else {
-        fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+    let quiet = floors.min() ?? 0
+
+    // Two attempts: a passing car does not get to fail a release.
+    var spoken: Float = 0
+    var ratio: Float = 0
+    for attempt in 1...2 {
+        guard let heard = inputLoudness(seconds: 3.0, whileDoing: {
+            run("/usr/bin/say", ["-r", "170", "Steneo microphone check"])
+        }) else {
+            fail("ABORT: cannot read the microphone, so nothing can be measured.", code: 2)
+        }
+        spoken = heard
+        ratio = quiet > 0 ? heard / quiet : Float.infinity
+        print(String(format: "· audibility: room %.4f, speaking %.4f (%.1fx)%@",
+                     quiet, spoken, ratio, attempt == 1 ? "" : " [second attempt]"))
+        if spoken >= 0.003 && ratio >= 3.0 { break }
+        if attempt == 1 { print("· too close to the noise floor — measuring once more") }
     }
-    let ratio = quiet > 0 ? spoken / quiet : Float.infinity
-    print(String(format: "· audibility: room %.4f, speaking %.4f (%.1fx)", quiet, spoken, ratio))
     // The ratio is the discriminator: headset leakage does not rise when the Mac
     // speaks (measured 0.7x through AirPods), real speakers do. The floor only
     // guards against an input that hears nothing at all.

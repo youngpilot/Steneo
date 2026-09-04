@@ -83,13 +83,19 @@ final class RecoveryStore {
 
     // MARK: - Store
 
+    /// Async because the write is: ten minutes of 48 kHz audio is a ~57 MB file,
+    /// and this runs at the end of a recording, when the app is on the main actor
+    /// and the user is waiting to see something happen.
     @discardableResult
-    func save(samples: [Float], rate: Double, reason: RecordingFailure, date: Date = Date()) -> URL? {
+    func save(samples: [Float], rate: Double, reason: RecordingFailure, date: Date = Date()) async -> URL? {
         guard reason.hasRecoverableAudio, !samples.isEmpty, rate > 0 else { return nil }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             let url = directory.appendingPathComponent(Self.fileName(date: date, reason: reason))
-            try Self.writeWAV(samples: samples, rate: rate, to: url)
+            let payload = UncheckedSendableBox(samples)
+            try await Task.detached(priority: .utility) {
+                try Self.writeWAV(samples: payload.value, rate: rate, to: url)
+            }.value
             prune()
             refresh()
             logger.info("Kept \(samples.count, privacy: .public) samples for recovery (\(reason.rawValue, privacy: .public))")
@@ -129,7 +135,7 @@ final class RecoveryStore {
 
     /// 16-bit mono WAV at the capture rate — readable by anything, including
     /// Steneo's own file transcription, which is what "try again" runs.
-    static func writeWAV(samples: [Float], rate: Double, to url: URL) throws {
+    nonisolated static func writeWAV(samples: [Float], rate: Double, to url: URL) throws {
         guard let sourceFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
                                                sampleRate: rate, channels: 1, interleaved: false),
               let buffer = AVAudioPCMBuffer(pcmFormat: sourceFormat,

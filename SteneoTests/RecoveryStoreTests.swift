@@ -29,7 +29,7 @@ final class RecoveryStoreTests: XCTestCase {
 
     // MARK: - Naming round trip
 
-    func testNameCarriesTheDateAndTheReason() throws {
+    func testNameCarriesTheDateAndTheReason() async throws {
         let date = Date(timeIntervalSince1970: 1_780_000_000)
         let name = RecoveryStore.fileName(date: date, reason: .asrError)
         let parsed = try XCTUnwrap(RecoveryStore.parse(fileName: name))
@@ -81,9 +81,9 @@ final class RecoveryStoreTests: XCTestCase {
 
     // MARK: - Against the disk
 
-    func testAFailedRecordingSurvivesAsAReadableFile() throws {
-        let url = try XCTUnwrap(store().save(samples: tone(seconds: 1.0), rate: 48_000, reason: .emptyResult),
-                                "an empty result must leave the audio behind")
+    func testAFailedRecordingSurvivesAsAReadableFile() async throws {
+        let saved = await store().save(samples: tone(seconds: 1.0), rate: 48_000, reason: .emptyResult)
+        let url = try XCTUnwrap(saved, "an empty result must leave the audio behind")
         XCTAssertTrue(FileManager.default.fileExists(atPath: url.path))
         // Readable by the same machinery "Try again" runs on.
         let file = try AVAudioFile(forReading: url)
@@ -92,19 +92,21 @@ final class RecoveryStoreTests: XCTestCase {
         XCTAssertEqual(Double(file.length), 48_000, accuracy: 100)
     }
 
-    func testNothingIsKeptWhenThereIsNothingToKeep() {
+    func testNothingIsKeptWhenThereIsNothingToKeep() async {
         let s = store()
-        XCTAssertNil(s.save(samples: tone(seconds: 1.0), rate: 48_000, reason: .engineStart),
-                     "the microphone never came up — there is no audio")
-        XCTAssertNil(s.save(samples: [], rate: 48_000, reason: .emptyResult))
-        XCTAssertNil(s.save(samples: tone(seconds: 1.0), rate: 0, reason: .emptyResult))
+        let noEngine = await s.save(samples: tone(seconds: 1.0), rate: 48_000, reason: .engineStart)
+        XCTAssertNil(noEngine, "the microphone never came up — there is no audio")
+        let noSamples = await s.save(samples: [], rate: 48_000, reason: .emptyResult)
+        XCTAssertNil(noSamples)
+        let noRate = await s.save(samples: tone(seconds: 1.0), rate: 0, reason: .emptyResult)
+        XCTAssertNil(noRate)
         XCTAssertTrue(s.entries.isEmpty)
     }
 
-    func testTheStoreStaysAtItsLimit() {
+    func testTheStoreStaysAtItsLimit() async {
         let s = store()
         for i in 0..<(RecoveryStore.keepCount + 4) {
-            s.save(samples: tone(seconds: 0.05), rate: 16_000, reason: .emptyResult,
+            await s.save(samples: tone(seconds: 0.05), rate: 16_000, reason: .emptyResult,
                    date: Date(timeIntervalSince1970: 1_780_000_000 + Double(i) * 60))
         }
         XCTAssertEqual(s.entries.count, RecoveryStore.keepCount)
@@ -113,10 +115,10 @@ final class RecoveryStoreTests: XCTestCase {
                        "the newest recording must be the one still there")
     }
 
-    func testEntriesComeBackNewestFirstAndCanBeDeleted() {
+    func testEntriesComeBackNewestFirstAndCanBeDeleted() async {
         let s = store()
         for i in 0..<3 {
-            s.save(samples: tone(seconds: 0.05), rate: 16_000, reason: .asrError,
+            await s.save(samples: tone(seconds: 0.05), rate: 16_000, reason: .asrError,
                    date: Date(timeIntervalSince1970: 1_780_000_000 + Double(i) * 60))
         }
         XCTAssertEqual(s.entries.count, 3)

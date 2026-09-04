@@ -373,8 +373,8 @@ final class RecordingManager {
             outputService.insertText(output)
             historyService.addEntry(output, duration: duration)
         } else {
-            noteEmptyRecording(reason: transcriptionService.lastFailure ?? .emptyResult,
-                               samples: recorded.samples, rate: recorded.rate)
+            await noteEmptyRecording(reason: transcriptionService.lastFailure ?? .emptyResult,
+                                     samples: recorded.samples, rate: recorded.rate)
         }
 
         // Wait for all pending pastes to complete before ending session.
@@ -402,8 +402,8 @@ final class RecordingManager {
 
     /// A recording that produced nothing must never just disappear: keep the
     /// audio, name the reason, and say so where it can be seen.
-    private func noteEmptyRecording(reason: RecordingFailure, samples: [Float], rate: Double) {
-        let kept = recoveryStore.save(samples: samples, rate: rate, reason: reason)
+    private func noteEmptyRecording(reason: RecordingFailure, samples: [Float], rate: Double) async {
+        let kept = await recoveryStore.save(samples: samples, rate: rate, reason: reason)
         logger.error("Empty recording (\(reason.rawValue, privacy: .public)) — \(kept == nil ? "nothing kept" : "audio kept", privacy: .public)")
         showStatus(reason.message, isError: true)
         if kept != nil { hasRecoveryWaiting = true }
