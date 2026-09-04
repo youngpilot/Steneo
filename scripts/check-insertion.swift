@@ -1,6 +1,18 @@
 import AppKit
 import Foundation
 
+// This check brings TextEdit to the front and types into it. Silent, but still a
+// takeover of someone's keyboard — it does not start unasked either.
+guard CommandLine.arguments.contains("--confirm")
+        || ProcessInfo.processInfo.environment["STENEO_GATE_CONFIRM"] == "1" else {
+    print("""
+          Check A opens TextEdit and types into it for a few seconds.
+          Run it with --confirm (or STENEO_GATE_CONFIRM=1) when the Mac is free.
+          """)
+    exit(3)
+}
+
+
 /// Check A of the release gate: does text survive insertion character for
 /// character?
 ///

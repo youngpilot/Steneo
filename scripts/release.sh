@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION="1.4.2"
+VERSION="1.4.5"
 DIST_NAME="Steneo"     # user-facing app + DMG name
 BUILD_NAME="Steneo"   # internal Xcode product/scheme name (unchanged on purpose)
 TEAM_ID="${STENEO_TEAM_ID:?Set STENEO_TEAM_ID env var (Apple Developer Team ID)}"
@@ -17,6 +17,38 @@ APP_PATH="$BUILD_DIR/$DIST_NAME.app"                     # renamed distributable
 DMG_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.dmg"
 ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 
+# --- Both gates take over this Mac. Say so, and ask. ------------------------
+# On 04.09.2026 check B ran four times unannounced while the user was working:
+# it changed the volume, spoke out loud and quit his running Steneo. Worse, he
+# was wearing headphones, so it measured nothing and reported the app as broken.
+cat <<'NOTE'
+The two release gates take over this Mac for a few minutes:
+  A · opens TextEdit and types into it (silent)
+  B · sets the volume to 45, speaks two sentences OUT LOUD, quits the running
+      Steneo and runs the build under test instead
+Everything is put back afterwards.
+
+Check B needs SPEAKERS. With headphones the microphone cannot hear the Mac and
+the check has nothing to measure — it will refuse rather than guess.
+NOTE
+read -r -p "Run the gates now? [y/N] " answer
+case "$answer" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo "Aborted before anything was touched."; exit 1 ;;
+esac
+export STENEO_GATE_CONFIRM=1
+echo ""
+
+# --- Source invariants that a test cannot check ------------------------------
+# A regression here would HANG the test suite rather than fail it, so it is
+# checked in the source before anything is built.
+echo "=== Source check: audio threading ==="
+if ! "$PROJECT_DIR/scripts/check-audio-threading.sh"; then
+    echo "ABORT: the main thread can block on the audio queue. Nothing was released."
+    exit 1
+fi
+echo ""
+
 # --- Gate A: does text survive insertion character for character? ------------
 # Notarisation and Gatekeeper say nothing about whether the product works. This
 # release shipped a character-dropping insertion path three times because the
@@ -24,8 +56,15 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 echo "=== Gate A: insertion fidelity (opens TextEdit briefly) ==="
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-insertion.swift" -o /tmp/steneo-check-insertion
-if ! /tmp/steneo-check-insertion; then
-    echo "ABORT: insertion is not character-exact (or could not be measured). Nothing was released."
+A_STATUS=0
+/tmp/steneo-check-insertion || A_STATUS=$?
+if [ "$A_STATUS" -eq 2 ] || [ "$A_STATUS" -eq 3 ]; then
+    echo "ABORT: check A could not measure anything (see above). This says NOTHING"
+    echo "       about the build. Fix the setup and run the release again."
+    exit 1
+fi
+if [ "$A_STATUS" -ne 0 ]; then
+    echo "ABORT: insertion is not character-exact. Nothing was released."
     exit 1
 fi
 echo ""
@@ -63,9 +102,54 @@ codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo ""
 echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
+# macOS grants microphone access per bundle PATH, so a freshly built bundle in
+# build/ is a different app to TCC and is simply denied. The only place this
+# check can measure the artifact is where the app is installed. So: install the
+# exact bundle being released, gate it THERE, and keep the previous one to fall
+# back to. The bits under test are the bits that ship.
+INSTALLED="/Applications/$DIST_NAME.app"
+BACKUP="$BUILD_DIR/previously-installed.app"
+if [ -d "$INSTALLED" ]; then
+    rm -rf "$BACKUP"
+    cp -R "$INSTALLED" "$BACKUP"
+    echo "· previous install kept at $BACKUP"
+fi
+osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+sleep 2
+pkill -x "$BUILD_NAME" 2>/dev/null || true
+sleep 1
+rm -rf "$INSTALLED"
+cp -R "$APP_PATH" "$INSTALLED"
+open -a "$INSTALLED"
+sleep 3
+
+restore_previous_install() {
+    if [ -d "$BACKUP" ]; then
+        osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+        sleep 2
+        pkill -x "$BUILD_NAME" 2>/dev/null || true
+        sleep 1
+        rm -rf "$INSTALLED"
+        cp -R "$BACKUP" "$INSTALLED"
+        open -a "$INSTALLED"
+        echo "· previous install put back"
+    fi
+}
+
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
     "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
-if ! /tmp/steneo-check-core-chain "$APP_PATH"; then
+B_STATUS=0
+/tmp/steneo-check-core-chain --use-speakers "$INSTALLED" || B_STATUS=$?
+if [ "$B_STATUS" -eq 2 ] || [ "$B_STATUS" -eq 3 ]; then
+    # 2 = could not measure (headphones, no mic, muted), 3 = not confirmed.
+    # Neither is a statement about the app, so neither may read as one.
+    restore_previous_install
+    echo "ABORT: check B could not measure anything (see above). This says NOTHING"
+    echo "       about the build. Fix the setup and run the release again."
+    exit 1
+fi
+if [ "$B_STATUS" -ne 0 ]; then
+    restore_previous_install
     echo "ABORT: the core chain failed on the build being released. Nothing was released."
     exit 1
 fi
@@ -82,6 +166,18 @@ hdiutil create -volname "$DIST_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$D
 codesign --force --sign "$IDENTITY" --timestamp "$DMG_PATH"
 xcrun notarytool submit "$DMG_PATH" --keychain-profile "$NOTARY_PROFILE" --wait
 xcrun stapler staple "$DMG_PATH"
+
+echo ""
+echo "=== Installing the stapled bundle ==="
+# The copy that was gated is unstapled; replace it with the notarised one so the
+# machine ends up running exactly what users download.
+osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
+sleep 2
+pkill -x "$BUILD_NAME" 2>/dev/null || true
+sleep 1
+rm -rf "$INSTALLED"
+cp -R "$APP_PATH" "$INSTALLED"
+open -a "$INSTALLED"
 
 echo ""
 echo "=== Gatekeeper assessment ==="

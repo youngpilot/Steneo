@@ -2,6 +2,31 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.4.5
+
+### Fixed
+- **A red microphone now always means your audio is actually being captured.** If the audio engine died underneath a running recording — a device pulled out, a failed recovery after the input changed — nothing noticed. The icon stayed red and you kept talking into a recording that was capturing nothing. Steneo now watches the audio actually arriving and ends the recording within two seconds if it stops, says so, and keeps whatever was captured before that.
+- **Recording could capture nothing at all, silently.** Since 1.4.3 Steneo names the input device explicitly before each recording — and selecting it renegotiates the hardware, so a microphone the system was running at 44.1 kHz comes back at 48 kHz. Steneo kept asking the audio engine for the format it had *before* that, listened on the wrong one, and received not a single audio buffer. The start sound played, the icon went red, and the recording was empty. Measured: zero frames in a second where the correct format gives 48 000. This affected 1.4.3 and 1.4.4.
+- **A rare hang is gone.** Reading the recorded audio made the app wait on its audio thread, while the audio thread could need the main thread to finish — the two could wait for each other for ever. It needed a device change to land at the same moment as a recording stopping, which is exactly the situation the rest of this release is about. Found by a test that hung instead of failing; the rule is now checked in the source before every release.
+
+## 1.4.4
+
+### Fixed
+- **A recording can no longer disappear without a word.** If a recording produced no text — a dead microphone, a model failure, or simply no speech — Steneo used to do *nothing at all*: no text, no history entry, no message, no error, and the audio was thrown away. It looked exactly as though the recording had never happened. Now the reason is named, said out loud, and the audio is kept.
+
+### Added
+- **Kept recordings.** When a recording ends with nothing, its audio stays on disk (the last ten) and appears at the top of the menu with the reason it failed. **Try again** runs it through transcription a second time, and there is a button to show it in Finder or delete it. The menubar mic turns blue until you have looked.
+- **Failures now have names** in the log — `no-samples`, `too-short`, `asr-error`, `empty-result`, `engine-start` — instead of one silent empty result standing in for all five.
+
+## 1.4.3
+
+### Fixed
+- **The microphone no longer goes deaf after a device is unplugged.** Steneo used to let macOS pick the input device implicitly, which meant the audio engine remembered a device *number*. Those numbers are temporary: unplug a USB microphone or let a display re-enumerate, and the same microphone comes back as a different number. The remembered one then pointed at nothing, the engine fell back to a device with no input at all, and every recording failed the moment it started — the start sound played and the menubar mic went straight back to white. Steneo now names the input device explicitly, by its permanent identifier, and resolves it fresh at every single recording: your chosen device, then the system default, then the Mac's own microphone. A device that disappears no longer takes recording with it.
+- **The recovery from 1.4.1 could turn into a loop of its own.** It rebuilt the audio input on *every* configuration message from the system, with nothing to stop it. In one measured case that ran at nine rebuilds per second for over four hours and made the microphone unusable. Rebuilding now happens only when the input has genuinely changed, at most twice a second, and gives up with a visible message instead of looping — and it comes back by itself as soon as a recording succeeds.
+- **Steneo no longer touches your audio hardware when it isn't recording.** It used to warm up the audio engine at launch and keep it warm between recordings. Warming it opens an input device, and an open input device pulls a Bluetooth headset out of high-quality playback into the mono call profile — which is why AirPods could sound wrong for as long as Steneo was simply *running*. The microphone is now opened when a recording starts and released the moment it stops. Idle Steneo holds nothing. The first moment of a recording costs about 200 ms more, which is what the orange arming icon covers.
+- **Bluetooth headsets are never chosen as the microphone on your behalf.** If your AirPods are the system's default input, Steneo quietly uses the Mac's own microphone instead, so recording never degrades what you are listening to. Pick the headset explicitly and Steneo uses it — that is your call to make, not its.
+- **"No microphone found" is now something Steneo says.** A Mac with no usable input used to produce a generic engine failure; it now names the actual problem.
+
 ## 1.4.2
 
 ### Fixed

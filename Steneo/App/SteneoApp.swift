@@ -64,6 +64,11 @@ struct SteneoApp: App {
 
     /// A file transcription just finished and is waiting to be seen — a calm green.
     static let micDoneIcon: NSImage = coloredMicIcon(top: "#34C759")
+
+    /// A recording produced no text and its audio was kept. Blue, because this is
+    /// something to look at, not something on fire — and because red, orange,
+    /// yellow and green already mean other things here.
+    static let micRecoveryIcon: NSImage = coloredMicIcon(top: "#0A84FF")
 }
 
 /// The menubar status item reflects state: a deep-red mic while recording; warm
@@ -103,6 +108,7 @@ private struct MenuBarLabel: View {
         if recordingManager.isStarting { return SteneoApp.micStartingIcon }
         if recordingManager.isTranscribingFile || recordingManager.isPostProcessing { return SteneoApp.micTranscribingIcon }
         if recordingManager.fileTranscriptionDone { return SteneoApp.micDoneIcon }
+        if recordingManager.hasRecoveryWaiting { return SteneoApp.micRecoveryIcon }
         return SteneoApp.micIdleIcon
     }
 }

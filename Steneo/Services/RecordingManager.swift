@@ -18,6 +18,7 @@ final class RecordingManager {
     private let hotkeyService = HotkeyService()
     private let systemAudio = SystemAudioService.shared
     let historyService = HistoryService.shared
+    let recoveryStore = RecoveryStore.shared
 
     private(set) var isRecording = false
     private(set) var isStarting = false   // press registered, engine spinning up (shows orange — arming)
@@ -36,6 +37,9 @@ final class RecordingManager {
     /// A file transcription finished and is waiting to be seen — drives the green
     /// menubar badge. Cleared when the popover opens (or a new activity starts).
     private(set) var fileTranscriptionDone = false
+    /// A recording produced no text and its audio was kept — drives the menubar
+    /// badge, so the failure is visible instead of sitting in a closed popover.
+    private(set) var hasRecoveryWaiting = false
     private(set) var statusMessage: StatusMessage?
     private var statusClearTask: Task<Void, Never>?
     private var recordingStartTime: Date?
@@ -45,6 +49,13 @@ final class RecordingManager {
     /// ASR can't be torn down cleanly mid-flight, so we let it come up and then
     /// stop it cleanly (honored in beginCapture).
     private var stopAfterStart = false
+    /// Ends a recording whose microphone has gone deaf. Red must mean "your audio
+    /// is being captured"; without this it could mean "the engine died and nobody
+    /// noticed".
+    private var watchdogTask: Task<Void, Never>?
+    /// Set when the watchdog is the reason a recording ended, so the report names
+    /// what actually happened instead of "no speech found".
+    private var pendingFailureOverride: RecordingFailure?
 
     /// The output profile resolved when this recording STARTED. Resolved once, on
     /// purpose: the user can switch apps while speaking, and the text belongs to
@@ -89,6 +100,13 @@ final class RecordingManager {
             }
         }
 
+        // The audio input can fail while nothing is recording (a device is
+        // pulled, the input keeps reconfiguring). Say so instead of leaving a
+        // microphone that silently does nothing.
+        audioCaptureService.onInputUnavailable = { [weak self] message in
+            Task { @MainActor in self?.showStatus(message, isError: true) }
+        }
+
         // Wire silence timeout → auto-stop
         transcriptionService.onSilenceTimeout = { [weak self] in
             Task { @MainActor in
@@ -123,11 +141,10 @@ final class RecordingManager {
         // no load latency.
         SoundFeedback.preload()
 
-        // Warm up the audio engine so the first recording starts fast — only if
-        // the mic is already granted, so we never touch it prematurely.
-        if AVCaptureDevice.authorizationStatus(for: .audio) == .authorized {
-            audioCaptureService.prepareEngine()
-        }
+        // No audio warm-up. Touching the input node opens a device, and an open
+        // input device drags a Bluetooth headset into the mono call profile —
+        // which made simply having Steneo running degrade the user's AirPods.
+        // The engine is built when a recording starts and released when it ends.
 
         // Daily update check (no-op in Manual mode; connectivity-driven, at most
         // one GET per 24h). Touching the singleton also starts its net monitor.
@@ -174,6 +191,7 @@ final class RecordingManager {
         // Instant acknowledgement the moment the shortcut registers — red icon
         // + start sound — BEFORE the audio engine spins up (~200ms HAL setup).
         stopAfterStart = false
+        pendingFailureOverride = nil
         fileTranscriptionDone = false   // a new recording supersedes a stale "ready" badge
         isStarting = true
         needsMicrophone = false
@@ -253,6 +271,7 @@ final class RecordingManager {
         isRecording = true   // RED == recording — only now that the mic is live
         recordingStartTime = Date()
         needsAccessibility = !AXIsProcessTrusted()
+        startDeafnessWatchdog()
 
         // Stop was pressed during startup — bring it down cleanly now (before
         // muting media, so there's no audible blip).
@@ -280,16 +299,21 @@ final class RecordingManager {
         if error == .microphoneDenied {
             let status = AVCaptureDevice.authorizationStatus(for: .audio)
             needsMicrophone = (status == .denied || status == .restricted)
+        } else if error == .noInputDevice {
+            showStatus("No microphone found — check your input device", isError: true)
         } else {
             // Never fail silently again: without this the mic just blinked and
             // went back to white, which reads as "the shortcut is broken".
             showStatus("Microphone unavailable — check your input device", isError: true)
+            logger.error("Empty recording (\(RecordingFailure.engineStart.rawValue, privacy: .public)) — nothing to keep")
         }
         logger.error("Capture failed: \(error.localizedDescription)")
     }
 
     func stopRecording() async {
         guard isRecording else { return }
+        watchdogTask?.cancel()
+        watchdogTask = nil
         audioCaptureService.stopCapture()
         isRecording = false
         inputLevel = 0.0
@@ -348,6 +372,9 @@ final class RecordingManager {
             finalText = await FormattingService.shared.format(finalText, mode: formatMode)
         }
 
+        // A watchdog stop that still produced text is not a failure to report.
+        if !finalText.isEmpty { pendingFailureOverride = nil }
+
         // Paste the COMPLETE transcript (with prefix/suffix) once — reliable,
         // with no chunk-boundary artifacts from incremental pasting.
         var output = finalText
@@ -359,6 +386,10 @@ final class RecordingManager {
 
             outputService.insertText(output)
             historyService.addEntry(output, duration: duration)
+        } else {
+            let reason = pendingFailureOverride ?? transcriptionService.lastFailure ?? .emptyResult
+            pendingFailureOverride = nil
+            await noteEmptyRecording(reason: reason, samples: recorded.samples, rate: recorded.rate)
         }
 
         // Wait for all pending pastes to complete before ending session.
@@ -382,6 +413,60 @@ final class RecordingManager {
         }
 
         outputService.endSession()
+    }
+
+    /// Watch the audio actually arriving, and end the recording if it stops.
+    ///
+    /// The engine can die under a live recording — a device pulled, a resume after
+    /// a configuration change that fails. Nothing else notices: `isRecording` stays
+    /// true and the icon stays red over a microphone that hears nothing.
+    private func startDeafnessWatchdog() {
+        watchdogTask?.cancel()
+        let startedAt = Date()
+        watchdogTask = Task { @MainActor [weak self] in
+            let watchdog = DeafMicrophoneWatchdog()
+            var reportedFirstBuffer = false
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(400))
+                guard !Task.isCancelled, let self, self.isRecording else { return }
+                let gap = self.audioCaptureService.secondsSinceLastBuffer
+                // Log the first observed gap once per recording. The watchdog rests
+                // entirely on this number moving, and the unit test that proves it
+                // needs a microphone the test runner does not always have — so the
+                // shipping build says it out loud instead.
+                if !reportedFirstBuffer, let gap {
+                    reportedFirstBuffer = true
+                    logger.info("Audio is arriving — first heartbeat gap \(gap, format: .fixed(precision: 3), privacy: .public)s")
+                }
+                let verdict = watchdog.verdict(
+                    secondsSinceLastBuffer: gap,
+                    secondsSinceStart: Date().timeIntervalSince(startedAt))
+                guard verdict == .deaf else { continue }
+                logger.error("No audio for \(watchdog.silenceLimit, privacy: .public)s while recording — the microphone went deaf; stopping")
+                self.pendingFailureOverride = .microphoneWentSilent
+                // Clear first: stopRecording cancels this task, and being
+                // cancelled mid-stop would skip its paste drain.
+                self.watchdogTask = nil
+                await self.stopRecording()
+                return
+            }
+        }
+    }
+
+    /// A recording that produced nothing must never just disappear: keep the
+    /// audio, name the reason, and say so where it can be seen.
+    private func noteEmptyRecording(reason: RecordingFailure, samples: [Float], rate: Double) async {
+        let kept = await recoveryStore.save(samples: samples, rate: rate, reason: reason)
+        logger.error("Empty recording (\(reason.rawValue, privacy: .public)) — \(kept == nil ? "nothing kept" : "audio kept", privacy: .public)")
+        showStatus(reason.message, isError: true)
+        if kept != nil { hasRecoveryWaiting = true }
+    }
+
+    /// Transcribe a kept recording again — same path as any dropped audio file,
+    /// so there is no second transcription route to keep working.
+    func retryRecovered(_ recording: RecoveredRecording) {
+        hasRecoveryWaiting = false
+        transcribeFile(recording.url)
     }
 
     // MARK: - File transcription
@@ -431,6 +516,7 @@ final class RecordingManager {
     /// menubar badge (the user has come to look).
     func markWindowOpened() {
         fileTranscriptionDone = false
+        hasRecoveryWaiting = false
     }
 
     /// Show a transient one-line status (auto-dismissed). Errors linger a little

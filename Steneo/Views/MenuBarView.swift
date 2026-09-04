@@ -96,6 +96,67 @@ struct MenuBarView: View {
 
     // MARK: - Main View
 
+    /// Kept recordings: what a silent loss looks like once it stops being silent.
+    @ViewBuilder
+    private var recoverySection: some View {
+        let entries = recordingManager.recoveryStore.entries
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
+                Image(systemName: "waveform.badge.exclamationmark")
+                    .foregroundStyle(.blue)
+                Text(entries.count == 1 ? "1 recording produced no text"
+                                        : "\(entries.count) recordings produced no text")
+                    .font(.body)
+                Spacer()
+                Button("Clear") { recordingManager.recoveryStore.deleteAll() }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(entries.prefix(3)) { entry in
+                HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(entry.date, format: .dateTime.day().month().hour().minute())
+                            .font(.caption)
+                        Text(entry.reason.message)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Button("Try again") { recordingManager.retryRecovered(entry) }
+                        .font(.caption)
+                        .disabled(recordingManager.isTranscribingFile)
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([entry.url])
+                    } label: {
+                        Image(systemName: "folder")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Show in Finder")
+                    Button {
+                        recordingManager.recoveryStore.delete(entry)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Delete this recording")
+                }
+            }
+            if entries.count > 3 {
+                Text("and \(entries.count - 3) more")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(DesignTokens.Spacing.s)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8)
+            .strokeBorder(Color.blue.opacity(0.3), lineWidth: 0.5))
+    }
+
     @ViewBuilder
     private var mainSection: some View {
         // Update banner (only when a newer release is available)
@@ -290,6 +351,12 @@ struct MenuBarView: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder((status.isError ? Color.red : Color.green).opacity(0.3), lineWidth: 0.5))
             .transition(.opacity)
+        }
+
+        // Recordings that produced no text. They used to vanish without a word;
+        // now the audio is here and can be run again.
+        if !recordingManager.recoveryStore.entries.isEmpty {
+            recoverySection
         }
 
         // Microphone permission warning
