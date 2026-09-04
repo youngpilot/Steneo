@@ -364,6 +364,11 @@ func requireTheMicrophoneCanHearTheSpeaker() {
     // notification, or someone saying a word — and a poisoned floor makes real
     // speakers look like headphones. That happened on the first run of this check
     // against 1.4.4: floor 0.0219 where the room was actually 0.0010.
+    // Let the hardware settle first. Switching the output device and turning the
+    // volume up both make noise of their own, and the floor is measured right
+    // after — on 04.09.2026 that produced a floor of 0.0240 where the room was
+    // actually 0.0010, which aborted a release for nothing.
+    Thread.sleep(forTimeInterval: 1.5)
     var floors: [Float] = []
     for _ in 0..<3 {
         guard let sample = inputLoudness(seconds: 0.6) else {
