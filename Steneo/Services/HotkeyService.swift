@@ -142,8 +142,15 @@ final class HotkeyService {
 
     // MARK: - Regular keys (F5, ⌥Space, Fn Space)
 
+    /// A key-down counts as a press only when it is not the keyboard repeating a
+    /// key that is being held. Without this, holding F5 past the repeat delay
+    /// (450 ms on this Mac, shorter than a recording takes to start) fired the
+    /// toggle a second time and ended the recording the moment it began.
+    nonisolated static func isFreshPress(_ event: NSEvent) -> Bool { !event.isARepeat }
+
     private func handleKeyDown(_ event: NSEvent) {
         noteOtherInput(at: event.timestamp)
+        guard Self.isFreshPress(event) else { return }
         if mode == .hold {
             if matchesF5(event) { holdPress(.f5) }
             else if matchesOptionSpace(event) { holdPress(.optionSpace) }

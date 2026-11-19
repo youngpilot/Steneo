@@ -19,6 +19,8 @@
 		A10001000000000000000308 /* RecoveryStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000308 /* RecoveryStoreTests.swift */; };
 		A10001000000000000000310 /* DeafMicrophoneWatchdog.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000310 /* DeafMicrophoneWatchdog.swift */; };
 		A10001000000000000000311 /* DeafMicrophoneWatchdogTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000311 /* DeafMicrophoneWatchdogTests.swift */; };
+		A10001000000000000000320 /* AppEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000320 /* AppEnvironment.swift */; };
+		A10001000000000000000321 /* MicrophoneFallbackTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000321 /* MicrophoneFallbackTests.swift */; };
 		A10001000000000000000004 /* AudioCaptureService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000004 /* AudioCaptureService.swift */; };
 		A10001000000000000000005 /* TranscriptionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000005 /* TranscriptionService.swift */; };
 		A10001000000000000000006 /* HotkeyService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000006 /* HotkeyService.swift */; };
@@ -67,6 +69,8 @@
 		A10002000000000000000308 /* RecoveryStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryStoreTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000310 /* DeafMicrophoneWatchdog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeafMicrophoneWatchdog.swift; sourceTree = "<group>"; };
 		A10002000000000000000311 /* DeafMicrophoneWatchdogTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeafMicrophoneWatchdogTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000320 /* AppEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppEnvironment.swift; sourceTree = "<group>"; };
+		A10002000000000000000321 /* MicrophoneFallbackTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrophoneFallbackTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000004 /* AudioCaptureService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioCaptureService.swift; sourceTree = "<group>"; };
 		A10002000000000000000005 /* TranscriptionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptionService.swift; sourceTree = "<group>"; };
 		A10002000000000000000006 /* HotkeyService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HotkeyService.swift; sourceTree = "<group>"; };
@@ -152,6 +156,7 @@
 				A10002000000000000000307 /* RecordingFailureTests.swift */,
 				A10002000000000000000308 /* RecoveryStoreTests.swift */,
 				A10002000000000000000311 /* DeafMicrophoneWatchdogTests.swift */,
+				A10002000000000000000321 /* MicrophoneFallbackTests.swift */,
 				A10002000000000000000209 /* AudioCaptureRecoveryTests.swift */,
 				A10002000000000000000208 /* OutputProfileTests.swift */,
 				A10002000000000000000202 /* EncryptionServiceTests.swift */,
@@ -204,6 +209,7 @@
 				A10002000000000000000305 /* RecordingFailure.swift */,
 				A10002000000000000000306 /* RecoveryStore.swift */,
 				A10002000000000000000310 /* DeafMicrophoneWatchdog.swift */,
+				A10002000000000000000320 /* AppEnvironment.swift */,
 				A10002000000000000000004 /* AudioCaptureService.swift */,
 				A10002000000000000000005 /* TranscriptionService.swift */,
 				A10002000000000000000006 /* HotkeyService.swift */,
@@ -345,6 +351,7 @@
 				A10001000000000000000305 /* RecordingFailure.swift in Sources */,
 				A10001000000000000000306 /* RecoveryStore.swift in Sources */,
 				A10001000000000000000310 /* DeafMicrophoneWatchdog.swift in Sources */,
+				A10001000000000000000320 /* AppEnvironment.swift in Sources */,
 				A10001000000000000000004 /* AudioCaptureService.swift in Sources */,
 				A10001000000000000000005 /* TranscriptionService.swift in Sources */,
 				A10001000000000000000006 /* HotkeyService.swift in Sources */,
@@ -381,6 +388,7 @@
 				A10001000000000000000307 /* RecordingFailureTests.swift in Sources */,
 				A10001000000000000000308 /* RecoveryStoreTests.swift in Sources */,
 				A10001000000000000000311 /* DeafMicrophoneWatchdogTests.swift in Sources */,
+				A10001000000000000000321 /* MicrophoneFallbackTests.swift in Sources */,
 				A10001000000000000000209 /* AudioCaptureRecoveryTests.swift in Sources */,
 				A10001000000000000000208 /* OutputProfileTests.swift in Sources */,
 				A10001000000000000000202 /* EncryptionServiceTests.swift in Sources */,
@@ -521,7 +529,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -529,7 +537,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -544,7 +552,7 @@
 				CODE_SIGN_ENTITLEMENTS = Steneo/Steneo.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -552,7 +560,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				INFOPLIST_KEY_NSAppleEventsUsageDescription = "Steneo needs Automation access to detect if music is playing, so it can pause during recording and resume when you stop.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Steneo uses your microphone to transcribe speech into text locally on your device. Audio never leaves your Mac.";
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.Steneo;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -565,11 +573,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;
@@ -583,11 +591,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 47;
+				CURRENT_PROJECT_VERSION = 48;
 				DEVELOPMENT_TEAM = 5A4T37N77V;
 				GENERATE_INFOPLIST_FILE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 15.2;
-				MARKETING_VERSION = 1.4.5;
+				MARKETING_VERSION = 1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = com.youngpilot.SteneoTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = NO;

@@ -188,6 +188,22 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(autoStopTimeout.rawValue, forKey: "autoStopTimeout") }
     }
 
+    /// The microphone the user picked, by its stable UID. Empty means
+    /// "automatic": follow the system input. The name is kept next to it so a
+    /// device that is unplugged right now can still be shown and named.
+    var preferredInputUID: String {
+        didSet { UserDefaults.standard.set(preferredInputUID, forKey: "preferredInputUID") }
+    }
+    var preferredInputName: String {
+        didSet { UserDefaults.standard.set(preferredInputName, forKey: "preferredInputName") }
+    }
+
+    /// How long each microphone takes to start, in milliseconds, by UID. A
+    /// measurement, not a preference: it survives "reset to defaults".
+    var inputStartTimes: [String: Double] {
+        didSet { UserDefaults.standard.set(inputStartTimes, forKey: "inputStartTimes") }
+    }
+
     /// When recording, mute all system output to silence. On by default.
     var silenceMediaWhileRecording: Bool {
         didSet { UserDefaults.standard.set(silenceMediaWhileRecording, forKey: "silenceMediaWhileRecording") }
@@ -329,6 +345,8 @@ final class SettingsStore {
         prefixText = ""
         suffixText = ""
         autoStopTimeout = .sixty
+        preferredInputUID = ""
+        preferredInputName = ""
         silenceMediaWhileRecording = true
         pauseMediaApps = true
         enableVocabBoosting = false
@@ -363,6 +381,9 @@ final class SettingsStore {
         self.politenessMode = ud.bool(forKey: "politenessMode")
         self.suffixText = ud.string(forKey: "suffixText") ?? ""
         self.prefixText = ud.string(forKey: "prefixText") ?? ""
+        self.preferredInputUID = ud.string(forKey: "preferredInputUID") ?? ""
+        self.preferredInputName = ud.string(forKey: "preferredInputName") ?? ""
+        self.inputStartTimes = ud.dictionary(forKey: "inputStartTimes") as? [String: Double] ?? [:]
         self.autoStopTimeout = {
             if ud.object(forKey: "autoStopTimeout") == nil { return .sixty }
             return AutoStopOption(rawValue: ud.integer(forKey: "autoStopTimeout")) ?? .sixty

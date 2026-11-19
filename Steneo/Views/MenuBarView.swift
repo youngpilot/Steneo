@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -212,7 +213,7 @@ struct MenuBarView: View {
                     .font(.system(size: 14, weight: .medium))
                 }
                 .buttonStyle(GroupedButtonStyle())
-                .disabled(!recordingManager.isModelLoaded)
+                .disabled(recordingManager.modelLoadError != nil && !recordingManager.isModelLoaded)
                 .opacity(topHover ? 1 : 0)
                 .allowsHitTesting(topHover)
             }
@@ -351,6 +352,23 @@ struct MenuBarView: View {
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder((status.isError ? Color.red : Color.green).opacity(0.3), lineWidth: 0.5))
             .transition(.opacity)
+        }
+
+        // Recording on a fallback microphone: stays until a start needs none.
+        if let notice = recordingManager.microphoneNotice {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "mic.badge.xmark")
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            .padding(DesignTokens.Spacing.s)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.orange.opacity(0.3), lineWidth: 0.5))
         }
 
         // Recordings that produced no text. They used to vanish without a word;
@@ -1237,6 +1255,16 @@ private struct InlineSettingsView: View {
     @State private var showFnKeyHint = false
     @State private var showShortcutPicker = false
     @State private var expandedSection: String?
+    /// Microphones for the picker, read when the Recording card opens.
+    @State private var inputDevices: [AudioDevice] = []
+
+    /// What the picker cannot say by itself: what is actually in use, and that
+    /// the Mac's own microphone is always the net underneath.
+    private var microphoneCaption: String {
+        let inUse = recordingManager.microphoneName.map { "In use: \($0). " } ?? ""
+        return inUse + "The time is how long a microphone needs before it records – speech before that is lost. "
+            + "If one doesn't start, Steneo switches to the Mac's own and tells you."
+    }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
 
@@ -1456,6 +1484,61 @@ private struct InlineSettingsView: View {
 
             // Recording
             SettingsCard(title: "Recording", isExpanded: expandedSection == "Recording", onToggle: { toggleSection("Recording") }) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Microphone")
+                        Spacer()
+                        Picker("Microphone", selection: Binding(
+                            get: { settings.preferredInputUID },
+                            set: { uid in
+                                settings.preferredInputUID = uid
+                                settings.preferredInputName = inputDevices.first { $0.uid == uid }?.name ?? ""
+                                recordingManager.refreshMicrophone()
+                            }
+                        )) {
+                            Text("Automatic").tag("")
+                            ForEach(inputDevices) { device in
+                                Text(AudioDeviceResolver.startLabel(
+                                    name: device.name,
+                                    milliseconds: settings.inputStartTimes[device.uid],
+                                    isBluetooth: device.isBluetooth)).tag(device.uid)
+                            }
+                            // A chosen device that is unplugged right now stays
+                            // selectable, so the choice survives until it is back.
+                            if !settings.preferredInputUID.isEmpty,
+                               !inputDevices.contains(where: { $0.uid == settings.preferredInputUID }) {
+                                Text("\(settings.preferredInputName) (not connected)").tag(settings.preferredInputUID)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    .font(labelFont)
+                    Text(microphoneCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // On the container, which always exists while the card is open:
+                // property reads only, no device is opened by listing them.
+                .onAppear {
+                    inputDevices = AudioDeviceResolver.inputDevices()
+                    recordingManager.refreshMicrophone()
+                }
+                // Once per microphone, ever: measure how long it takes to start.
+                // Opens the device for that moment, so not while recording, and
+                // never for Bluetooth (it would pull a headset into call mode).
+                .task(id: inputDevices.map(\.uid)) {
+                    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+                    for device in inputDevices where !device.isBluetooth && settings.inputStartTimes[device.uid] == nil {
+                        guard !recordingManager.isRecording, !recordingManager.isStarting else { return }
+                        let measured = await Task.detached(priority: .utility) {
+                            AudioDeviceResolver.measureStart(of: device)
+                        }.value
+                        if let measured { settings.inputStartTimes[device.uid] = measured }
+                    }
+                }
+
                 Toggle("Mute Media Playback while recording", isOn: Binding(
                     get: { settings.silenceMediaWhileRecording },
                     set: { settings.silenceMediaWhileRecording = $0 }

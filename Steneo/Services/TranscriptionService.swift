@@ -72,7 +72,25 @@ final class TranscriptionService {
 
     // MARK: - Model Loading
 
+    /// The one load in flight (or finished). A recording that ends before the
+    /// model is ready waits on exactly this, instead of being refused at the
+    /// shortcut: capturing audio has never needed the model, only the
+    /// transcription at stop does.
+    private var modelLoad: Task<Void, Error>?
+
     func loadModel() async throws {
+        if let modelLoad { return try await modelLoad.value }
+        let task = Task { @MainActor in try await self.performModelLoad() }
+        modelLoad = task
+        do {
+            try await task.value
+        } catch {
+            modelLoad = nil   // a failed load may be retried
+            throw error
+        }
+    }
+
+    private func performModelLoad() async throws {
         modelLoadingStep = "Downloading ASR model… (1/2)"
         let models = try await AsrModels.downloadAndLoad(version: .v3)
         asrModels = UncheckedSendableBox(models)
@@ -174,8 +192,9 @@ final class TranscriptionService {
     /// v2: no streaming session during recording — just confirm the batch engine
     /// is ready (so stop is fast). Audio is buffered by feed().
     func startTranscription() async {
-        guard isModelLoaded, isCapturing else { return }
-        if batchAsr == nil { _ = try? await batchEngine() }
+        guard isCapturing else { return }
+        // Deliberately no model check: if it is still loading, the audio is
+        // recorded all the same and `batchEngine()` waits for it at stop.
         isTranscribing = true
     }
 
@@ -189,14 +208,22 @@ final class TranscriptionService {
         // final tail (the WHOLE recording if no cut ever fired) and assemble in order.
         for task in segmentTasks { await task.value }
         tailTranscribeThrew = false
+        // Timed on purpose. Measured 19.11.2026: ~65–100 ms for 3 s of audio, and a
+        // model left idle is at most a few dozen ms slower — an A/B with a warm-up
+        // run in the pause after speech gained 20 ms, so there is none.
+        let transcribeBegan = Date()
         let tail = await rawTranscribe(rawSamples, rate: rate)
+        let seconds = rate > 0 ? Double(rawSamples.count) / rate : 0
+        logger.info("Transcribed \(seconds, format: .fixed(precision: 1), privacy: .public) s of audio in \(Date().timeIntervalSince(transcribeBegan) * 1000, format: .fixed(precision: 0), privacy: .public) ms")
         var ordered: [String] = []
         for i in 0..<segmentIndex { ordered.append(segmentResults[i] ?? "") }
         finalize(Self.assembleSegments(ordered, tail: tail))
         // Name the reason instead of returning a bare "". An empty string used to
         // be the single answer to four very different failures.
+        // After a segment cut `rawSamples` is only the tail. A long recording must
+        // not be called "too short" (or "no samples") because its tail is.
         lastFailure = RecordingFailure.classify(
-            sampleCount: rawSamples.count,
+            sampleCount: segmentIndex > 0 ? Int.max : rawSamples.count,
             minimumSamples: Self.minimumSamples(atRate: rate),
             asrThrew: tailTranscribeThrew,
             transcript: currentText)
@@ -209,6 +236,8 @@ final class TranscriptionService {
     // MARK: - Batch transcription (live buffer + files share one engine)
 
     private func batchEngine() async throws -> AsrManager {
+        if let batchAsr { return batchAsr }
+        if asrModels == nil { try await loadModel() }   // still loading (or never started): wait for it
         if let batchAsr { return batchAsr }
         guard let asrModels else {
             throw NSError(domain: "Steneo", code: 1,
@@ -225,8 +254,8 @@ final class TranscriptionService {
     /// de-stutter. Returns "" on too-short/failure. The word-replacement/voice-command
     /// pass runs ONCE on the assembled text (`finalize`), not per chunk.
     private func rawTranscribe(_ rawSamples: [Float], rate: Double) async -> String {
-        let samples = (rate <= 0 || rate == 16000) ? rawSamples : Self.resample(rawSamples, from: rate)
-        guard samples.count >= 1600 else { return "" }   // < ~0.1 s of audio — nothing to do
+        let resampled = (rate <= 0 || rate == 16000) ? rawSamples : Self.resample(rawSamples, from: rate)
+        guard let samples = Self.paddedForModel(resampled) else { return "" }   // too short to hold a word
         do {
             let asr = try await batchEngine()
             let result = try await asr.transcribe(samples, source: .microphone)
@@ -240,11 +269,24 @@ final class TranscriptionService {
         }
     }
 
-    /// Below this there is nothing to transcribe: `rawTranscribe` needs 1600
-    /// samples AFTER resampling to 16 kHz, which is a tenth of a second at any
-    /// input rate.
+    /// The model refuses anything under one second of 16 kHz audio ("Invalid
+    /// audio data provided"). A spoken "Ja, passt." is shorter than that, and
+    /// until 1.6 it was reported as a failed transcription. So short audio is
+    /// padded with silence up to the second the model needs — from 0.3 s on,
+    /// below which there is no room for a word and nothing is attempted.
+    nonisolated static let modelMinimumSamples = 16_000
+    nonisolated static let shortestSpeechSamples = 4_800
+    nonisolated static func paddedForModel(_ samples: [Float]) -> [Float]? {
+        guard samples.count >= shortestSpeechSamples else { return nil }
+        guard samples.count < modelMinimumSamples else { return samples }
+        return samples + [Float](repeating: 0, count: modelMinimumSamples - samples.count)
+    }
+
+    /// A recording shorter than this that produced no text is simply "too
+    /// short" — almost always a shortcut pressed twice — not a failure worth
+    /// keeping audio for. One second, at any input rate.
     nonisolated static func minimumSamples(atRate rate: Double) -> Int {
-        rate > 0 ? Int((rate * 0.1).rounded(.up)) : 1600
+        rate > 0 ? Int(rate.rounded(.up)) : modelMinimumSamples
     }
 
     /// Apply the shared text pipeline (word replacements + voice commands) ONCE over

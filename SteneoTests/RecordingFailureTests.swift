@@ -66,11 +66,20 @@ final class RecordingFailureTests: XCTestCase {
 
     // MARK: - The threshold the classifier is measured against
 
-    func testMinimumSamplesIsATenthOfASecondAtAnyRate() {
-        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 48_000), 4_800)
-        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 24_000), 2_400)
-        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 16_000), 1_600)
-        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 0), 1_600,
+    /// One second: below that an empty result is "too short" (a shortcut pressed
+    /// twice), not a failed transcription with audio worth keeping. On 19.11.2026
+    /// two such recordings were reported as "Transcription failed".
+    func testARecordingUnderASecondIsTooShortAtAnyRate() {
+        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 48_000), 48_000)
+        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 44_100), 44_100)
+        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 16_000), 16_000)
+        XCTAssertEqual(TranscriptionService.minimumSamples(atRate: 0), 16_000,
                        "an unknown rate must not make every recording look long enough")
+        // The two real cases: 33600 and 4800 samples at 48 kHz, no text.
+        for samples in [33_600, 4_800] {
+            XCTAssertEqual(RecordingFailure.classify(
+                sampleCount: samples, minimumSamples: TranscriptionService.minimumSamples(atRate: 48_000),
+                asrThrew: false, transcript: ""), .tooShort)
+        }
     }
 }

@@ -57,6 +57,23 @@ final class RecordingManager {
     /// what actually happened instead of "no speech found".
     private var pendingFailureOverride: RecordingFailure?
 
+    /// The microphone the last recording used, or the one the next would use.
+    private(set) var microphoneName: String?
+    /// Standing notice while recordings run on a fallback microphone. Cleared by
+    /// the first start that needs no fallback — a transient status line would be
+    /// gone long before anyone opens the menu after dictating.
+    private(set) var microphoneNotice: String?
+
+    /// What ended a recording. Logged with every stop: on 19.11.2026 two
+    /// recordings ended within a second and nothing recorded by what.
+    enum StopReason: String {
+        case toggle = "shortcut or button"
+        case released = "hold key released"
+        case cancelledWhileStarting = "pressed again while starting"
+        case silence = "silence timeout"
+        case watchdog = "microphone went silent"
+    }
+
     /// The output profile resolved when this recording STARTED. Resolved once, on
     /// purpose: the user can switch apps while speaking, and the text belongs to
     /// the app they were in when they pressed the shortcut.
@@ -94,7 +111,7 @@ final class RecordingManager {
         hotkeyService.onRelease = { [weak self] in
             guard let self else { return }
             if self.isRecording {
-                Task { await self.stopRecording() }
+                Task { await self.stopRecording(reason: .released) }
             } else if self.isStarting {
                 self.stopAfterStart = true   // released during start-up → honored once live
             }
@@ -107,12 +124,15 @@ final class RecordingManager {
             Task { @MainActor in self?.showStatus(message, isError: true) }
         }
 
+        audioCaptureService.onStarted = { [weak self] info in
+            Task { @MainActor in self?.captureStarted(info) }
+        }
+
         // Wire silence timeout → auto-stop
         transcriptionService.onSilenceTimeout = { [weak self] in
             Task { @MainActor in
                 guard let self, self.isRecording else { return }
-                logger.info("Auto-stopping recording due to silence timeout")
-                await self.stopRecording()
+                await self.stopRecording(reason: .silence)
                 SoundFeedback.playStop()
             }
         }
@@ -120,7 +140,9 @@ final class RecordingManager {
 
     func setup() async {
         logger.info("Setup starting — registering hotkey")
-        hotkeyService.start()
+        // The unit-test host is this whole app, running next to the installed
+        // one on the developer's Mac. It must never answer the shortcut.
+        if !AppEnvironment.isRunningTests { hotkeyService.start() }
         outputService.startTrackingAppActivations()
         needsAccessibility = !AXIsProcessTrusted()
         let micStatus = AVCaptureDevice.authorizationStatus(for: .audio)
@@ -153,7 +175,7 @@ final class RecordingManager {
 
     func toggle() {
         if isRecording {
-            Task { await stopRecording() }
+            Task { await stopRecording(reason: .toggle) }
         } else if isStarting {
             // Stop pressed during the ~200ms start window — honor it the instant
             // the recording is actually live (beginCapture checks this flag).
@@ -175,10 +197,11 @@ final class RecordingManager {
 
     func startRecording() {
         guard !isRecording, !isStarting else { return }
-        // Instant feedback instead of a silent no-op while the speech model is
-        // still loading (e.g. right after launch) — otherwise a press feels ignored.
-        guard transcriptionService.isModelLoaded else {
-            showStatus("Loading speech model…")
+        // A model that is still loading does NOT block recording: capture needs
+        // no model, and the transcription at stop waits for it. Only a load that
+        // failed outright has nothing to wait for.
+        if let modelLoadError, !transcriptionService.isModelLoaded {
+            showStatus("Speech model couldn't be loaded: \(modelLoadError)", isError: true)
             return
         }
 
@@ -210,6 +233,8 @@ final class RecordingManager {
 
         outputService.rememberSourceApp()
         outputService.activeInsertionMode = profile.insertionMode
+        let preferredMicrophone = SettingsStore.shared.preferredInputUID
+        audioCaptureService.preferredDeviceUID = preferredMicrophone.isEmpty ? nil : preferredMicrophone
         // Let the transcription service pull finished segments' raw audio for
         // background transcription during long recordings.
         transcriptionService.segmentProvider = { [audioCaptureService] in audioCaptureService.takeSegment() }
@@ -277,7 +302,7 @@ final class RecordingManager {
         // muting media, so there's no audible blip).
         if stopAfterStart {
             stopAfterStart = false
-            Task { await stopRecording() }
+            Task { await stopRecording(reason: .cancelledWhileStarting) }
             return
         }
 
@@ -310,8 +335,10 @@ final class RecordingManager {
         logger.error("Capture failed: \(error.localizedDescription)")
     }
 
-    func stopRecording() async {
+    func stopRecording(reason: StopReason = .toggle) async {
         guard isRecording else { return }
+        let ran = recordingStartTime.map { Date().timeIntervalSince($0) } ?? 0
+        logger.info("Recording stopped after \(ran, format: .fixed(precision: 1), privacy: .public) s — \(reason.rawValue, privacy: .public)")
         watchdogTask?.cancel()
         watchdogTask = nil
         audioCaptureService.stopCapture()
@@ -337,6 +364,7 @@ final class RecordingManager {
         // ONE clean conversion of the whole raw recording (like the file path) —
         // no per-buffer resampler warm-up that garbled short clips.
         let recorded = audioCaptureService.takeRecording()
+        if !transcriptionService.isModelLoaded { showStatus("Loading speech model…") }
         var finalText = await transcriptionService.stopTranscription(rawSamples: recorded.samples, rate: recorded.rate)
 
         // Onboarding test recording: surface the raw transcript in the window only —
@@ -447,7 +475,7 @@ final class RecordingManager {
                 // Clear first: stopRecording cancels this task, and being
                 // cancelled mid-stop would skip its paste drain.
                 self.watchdogTask = nil
-                await self.stopRecording()
+                await self.stopRecording(reason: .watchdog)
                 return
             }
         }
@@ -458,7 +486,7 @@ final class RecordingManager {
     private func noteEmptyRecording(reason: RecordingFailure, samples: [Float], rate: Double) async {
         let kept = await recoveryStore.save(samples: samples, rate: rate, reason: reason)
         logger.error("Empty recording (\(reason.rawValue, privacy: .public)) — \(kept == nil ? "nothing kept" : "audio kept", privacy: .public)")
-        showStatus(reason.message, isError: true)
+        showStatus(reason.message, isError: reason != .tooShort)
         if kept != nil { hasRecoveryWaiting = true }
     }
 
@@ -517,6 +545,28 @@ final class RecordingManager {
     func markWindowOpened() {
         fileTranscriptionDone = false
         hasRecoveryWaiting = false
+        refreshMicrophone()
+    }
+
+    /// Which microphone a recording would use right now. Property reads only —
+    /// this opens no device, so it is safe while idle.
+    func refreshMicrophone() {
+        guard !isRecording, !isStarting else { return }
+        let preferred = SettingsStore.shared.preferredInputUID
+        microphoneName = AudioDeviceResolver.current(preferredUID: preferred.isEmpty ? nil : preferred)?.device.name
+    }
+
+    /// A recording went live: remember the microphone, and say so if it is not
+    /// the one the user would expect.
+    private func captureStarted(_ info: CaptureStartInfo) {
+        microphoneName = info.device.name
+        let settings = SettingsStore.shared
+        settings.inputStartTimes[info.device.uid] = info.engineStartMilliseconds
+        let notice = AudioDeviceResolver.notice(
+            used: info.device, source: info.source, failedNames: info.failedNames,
+            preferredName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName)
+        if let notice, notice != microphoneNotice { showStatus(notice, isError: true) }
+        microphoneNotice = notice
     }
 
     /// Show a transient one-line status (auto-dismissed). Errors linger a little
@@ -563,7 +613,7 @@ enum SoundFeedback {
     static func preload() { _ = startSound; _ = stopSound }
 
     private static func restart(_ sound: NSSound?) {
-        guard let sound else { return }
+        guard !AppEnvironment.isRunningTests, let sound else { return }
         if sound.isPlaying { sound.stop() }   // allow rapid re-trigger
         sound.play()
     }
