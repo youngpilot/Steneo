@@ -244,4 +244,24 @@ final class MicrophoneFallbackTests: XCTestCase {
             XCTAssertTrue(info.failedNames.isEmpty, "one microphone, retried: nothing was switched")
         }
     }
+
+    // MARK: - Recording does not wait for the model
+
+    /// Capturing audio never needed the speech model, only the transcription at
+    /// stop does. Until 1.6 a press while the model was still loading was simply
+    /// refused. Now the recording runs and the stop waits for the model.
+    @MainActor
+    func testARecordingMadeBeforeTheModelIsReadyIsStillTranscribed() async {
+        let service = TranscriptionService()
+        XCTAssertFalse(service.isModelLoaded, "precondition: nothing is loaded yet")
+
+        service.beginCapturing()
+        await service.startTranscription()
+        let audio = (0..<32_000).map { sinf(Float($0) * 0.03) * 0.05 }      // 2 s, no words in it
+        _ = await service.stopTranscription(rawSamples: audio, rate: 16_000)
+
+        XCTAssertTrue(service.isModelLoaded, "stopping has to bring the model up, not give up on it")
+        XCTAssertNotEqual(service.lastFailure, .asrError, "the model was only late, it did not fail")
+        XCTAssertNotNil(service.lastFailure, "and a tone is still no speech — the stop really ran through the model")
+    }
 }

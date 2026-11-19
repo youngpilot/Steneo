@@ -212,7 +212,7 @@ struct MenuBarView: View {
                     .font(.system(size: 14, weight: .medium))
                 }
                 .buttonStyle(GroupedButtonStyle())
-                .disabled(!recordingManager.isModelLoaded)
+                .disabled(recordingManager.modelLoadError != nil && !recordingManager.isModelLoaded)
                 .opacity(topHover ? 1 : 0)
                 .allowsHitTesting(topHover)
             }

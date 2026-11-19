@@ -10,6 +10,7 @@ All notable changes to Steneo. Dates are release dates; versions follow the app'
 - **Steneo tells you when it switched.** A notice in the menu names the microphone in use and the one that did not respond. It stays until a recording runs on your usual device again.
 
 ### Fixed
+- **A press while the speech model was still loading was refused.** Capturing audio never needed the model, only the transcription at the end does. Steneo now records right away and waits for the model when you stop.
 - **Holding F5 a moment too long stopped the recording right away.** The keyboard's auto-repeat counted as a second press, and it arrives faster than a recording takes to start.
 - **Very short recordings were reported as "Transcription failed".** The speech model needs a full second of audio. Shorter recordings are now padded with silence, so a quick "Yes, fine." works. Below about a third of a second there is nothing to transcribe, and Steneo says "too short" without keeping a file.
 - **Long recordings use far less memory.** Audio that was already transcribed in the background is released right away instead of being held until the end (up to 115 MB at ten minutes).

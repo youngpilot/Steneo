@@ -72,7 +72,25 @@ final class TranscriptionService {
 
     // MARK: - Model Loading
 
+    /// The one load in flight (or finished). A recording that ends before the
+    /// model is ready waits on exactly this, instead of being refused at the
+    /// shortcut: capturing audio has never needed the model, only the
+    /// transcription at stop does.
+    private var modelLoad: Task<Void, Error>?
+
     func loadModel() async throws {
+        if let modelLoad { return try await modelLoad.value }
+        let task = Task { @MainActor in try await self.performModelLoad() }
+        modelLoad = task
+        do {
+            try await task.value
+        } catch {
+            modelLoad = nil   // a failed load may be retried
+            throw error
+        }
+    }
+
+    private func performModelLoad() async throws {
         modelLoadingStep = "Downloading ASR model… (1/2)"
         let models = try await AsrModels.downloadAndLoad(version: .v3)
         asrModels = UncheckedSendableBox(models)
@@ -174,8 +192,9 @@ final class TranscriptionService {
     /// v2: no streaming session during recording — just confirm the batch engine
     /// is ready (so stop is fast). Audio is buffered by feed().
     func startTranscription() async {
-        guard isModelLoaded, isCapturing else { return }
-        if batchAsr == nil { _ = try? await batchEngine() }
+        guard isCapturing else { return }
+        // Deliberately no model check: if it is still loading, the audio is
+        // recorded all the same and `batchEngine()` waits for it at stop.
         isTranscribing = true
     }
 
@@ -189,7 +208,13 @@ final class TranscriptionService {
         // final tail (the WHOLE recording if no cut ever fired) and assemble in order.
         for task in segmentTasks { await task.value }
         tailTranscribeThrew = false
+        // Timed on purpose. Measured 19.11.2026: ~65–100 ms for 3 s of audio, and a
+        // model left idle is at most a few dozen ms slower — an A/B with a warm-up
+        // run in the pause after speech gained 20 ms, so there is none.
+        let transcribeBegan = Date()
         let tail = await rawTranscribe(rawSamples, rate: rate)
+        let seconds = rate > 0 ? Double(rawSamples.count) / rate : 0
+        logger.info("Transcribed \(seconds, format: .fixed(precision: 1), privacy: .public) s of audio in \(Date().timeIntervalSince(transcribeBegan) * 1000, format: .fixed(precision: 0), privacy: .public) ms")
         var ordered: [String] = []
         for i in 0..<segmentIndex { ordered.append(segmentResults[i] ?? "") }
         finalize(Self.assembleSegments(ordered, tail: tail))
@@ -211,6 +236,8 @@ final class TranscriptionService {
     // MARK: - Batch transcription (live buffer + files share one engine)
 
     private func batchEngine() async throws -> AsrManager {
+        if let batchAsr { return batchAsr }
+        if asrModels == nil { try await loadModel() }   // still loading (or never started): wait for it
         if let batchAsr { return batchAsr }
         guard let asrModels else {
             throw NSError(domain: "Steneo", code: 1,

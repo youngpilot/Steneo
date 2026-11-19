@@ -197,10 +197,11 @@ final class RecordingManager {
 
     func startRecording() {
         guard !isRecording, !isStarting else { return }
-        // Instant feedback instead of a silent no-op while the speech model is
-        // still loading (e.g. right after launch) — otherwise a press feels ignored.
-        guard transcriptionService.isModelLoaded else {
-            showStatus("Loading speech model…")
+        // A model that is still loading does NOT block recording: capture needs
+        // no model, and the transcription at stop waits for it. Only a load that
+        // failed outright has nothing to wait for.
+        if let modelLoadError, !transcriptionService.isModelLoaded {
+            showStatus("Speech model couldn't be loaded: \(modelLoadError)", isError: true)
             return
         }
 
@@ -363,6 +364,7 @@ final class RecordingManager {
         // ONE clean conversion of the whole raw recording (like the file path) —
         // no per-buffer resampler warm-up that garbled short clips.
         let recorded = audioCaptureService.takeRecording()
+        if !transcriptionService.isModelLoaded { showStatus("Loading speech model…") }
         var finalText = await transcriptionService.stopTranscription(rawSamples: recorded.samples, rate: recorded.rate)
 
         // Onboarding test recording: surface the raw transcript in the window only —
