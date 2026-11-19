@@ -314,6 +314,19 @@ func inputLoudness(seconds: TimeInterval, whileDoing action: (() -> Void)? = nil
 
 /// Refuse before touching a single setting if the sound cannot reach the mic.
 func requireTheMicrophoneCanHearTheSpeaker() {
+    // This check listens with its OWN process, and macOS hands a process without
+    // microphone permission pure zeros instead of an error. On 19.11.2026 that
+    // read as "room 0.0000, speaking 0.0000 — headphones?" when the truth was
+    // that the app running this script had lost its permission.
+    let permission = AVCaptureDevice.authorizationStatus(for: .audio)
+    guard permission == .authorized else {
+        fail("""
+             ABORT: this check itself may not use the microphone (the app that runs it —
+             Terminal, or Claude — has no microphone permission, so macOS feeds it silence).
+             Allow it in System Settings > Privacy & Security > Microphone and run again.
+             NOTHING WAS MEASURED — this says nothing about the build.
+             """, code: 2)
+    }
     // Asked to: put the sound where the microphone can hear it, and remember to
     // put it back. Without this the check simply refuses on any setup whose
     // output the mic cannot reach — headphones, an interface, a virtual device.
