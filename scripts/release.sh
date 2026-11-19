@@ -25,6 +25,28 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 echo "This release will ask you to dictate ONE sentence after the build (a notification tells you when)."
 echo ""
 
+# --- Resuming: straight to the dictated sentence ------------------------------
+# Check B needs a person at the Mac, minutes after the run started. If that
+# moment was missed, everything before it has already been proven for exactly
+# these sources: `--resume` picks up the bundle that was built and asks for the
+# sentence at once. It refuses when the bundle belongs to any other state.
+# The state is the app's sources and tests, not the commit: a change to this
+# script does not make a built app a different app.
+RESUME=0
+[ "${1:-}" = "--resume" ] && RESUME=1
+SOURCES="Steneo Steneo.xcodeproj SteneoTests"
+SOURCE_STATE="$(git -C "$PROJECT_DIR" rev-parse HEAD:Steneo HEAD:Steneo.xcodeproj HEAD:SteneoTests | tr '\n' ' ')"
+if [ "$RESUME" -eq 1 ]; then
+    if [ ! -d "$APP_PATH" ] || [ "$(cat "$BUILD_DIR/built-from" 2>/dev/null)" != "$SOURCE_STATE" ] \
+            || [ -n "$(git -C "$PROJECT_DIR" status --porcelain -- $SOURCES)" ]; then
+        echo "ABORT: nothing to resume. There is no checked bundle for the sources as they are now."
+        echo "       Run the release without --resume."
+        exit 1
+    fi
+    codesign --verify --deep --strict "$APP_PATH"
+    echo "=== Resuming with the bundle already built and checked from these sources ==="
+    echo ""
+else
 # --- Unit tests: silent, about 15 seconds, part of every release -------------
 echo "=== Unit tests ==="
 TEST_LOG="$(mktemp -t steneo-tests)"
@@ -119,6 +141,11 @@ echo ""
 echo "=== Verifying app signature ==="
 codesign -dv --verbose=2 "$APP_PATH" 2>&1 | grep -E "Authority|Identifier|Runtime"
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+# Everything above held for these sources: remember it, so a missed dictation
+# does not cost the whole run again.
+echo "$SOURCE_STATE" > "$BUILD_DIR/built-from"
+fi   # not resuming
 
 echo ""
 echo "=== Check B: dictate one sentence ==="
