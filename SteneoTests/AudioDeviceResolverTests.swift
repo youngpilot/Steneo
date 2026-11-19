@@ -36,12 +36,19 @@ final class AudioDeviceResolverTests: XCTestCase {
     /// THE case. A USB re-enumeration gives the same microphone a new
     /// AudioDeviceID; anything that remembered the old one now points at nothing.
     /// Steneo asked for device 312 for over four hours.
-    func testDeadIdentifierFallsBackToTheSystemDefault() {
+    func testDeadIdentifierFallsBackToAMicrophoneThatExists() {
         let r = AudioDeviceResolver.resolve(
             preferredUID: "Gone-312", available: machine,
             systemDefaultUID: display, builtInUID: builtIn)
-        XCTAssertEqual(r?.device.uid, display)
-        XCTAssertEqual(r?.source, .systemDefault, "a device that no longer exists must not fail the recording")
+        XCTAssertEqual(r?.device.uid, builtIn, "a device that no longer exists must not fail the recording")
+        XCTAssertEqual(r?.source, .builtIn)
+
+        // A desktop Mac: no microphone of its own, the system's input is next.
+        let desktop = AudioDeviceResolver.resolve(
+            preferredUID: "Gone-312", available: [device(scarlett, inputs: 4), device(display)],
+            systemDefaultUID: display, builtInUID: nil)
+        XCTAssertEqual(desktop?.device.uid, display)
+        XCTAssertEqual(desktop?.source, .systemDefault)
     }
 
     func testWithoutASystemDefaultTheBuiltInMicIsUsed() {
@@ -61,13 +68,13 @@ final class AudioDeviceResolverTests: XCTestCase {
         XCTAssertEqual(r?.device.uid, builtIn, "an output-only device is not an input, however it is named")
     }
 
-    func testLastResortBeatsGivingUp() {
+    func testAnyInputBeatsGivingUp() {
         let odd = device("SomeInterface-UID")
         let r = AudioDeviceResolver.resolve(
             preferredUID: "Gone", available: [odd],
             systemDefaultUID: "AlsoGone", builtInUID: "NoBuiltIn")
         XCTAssertEqual(r?.device.uid, odd.uid)
-        XCTAssertEqual(r?.source, .lastResort)
+        XCTAssertEqual(r?.source, .other)
     }
 
     func testNoUsableInputIsReportedNotGuessed() {
@@ -77,13 +84,75 @@ final class AudioDeviceResolverTests: XCTestCase {
         XCTAssertNil(r, "no input at all is an error to report, not something to paper over")
     }
 
-    func testEmptyPreferenceMeansFollowTheSystem() {
+    func testEmptyPreferenceMeansAutomatic() {
         for empty in [nil, ""] as [String?] {
             let r = AudioDeviceResolver.resolve(
                 preferredUID: empty, available: machine,
                 systemDefaultUID: display, builtInUID: builtIn)
-            XCTAssertEqual(r?.source, .systemDefault, "\(String(describing: empty)) must not count as a choice")
+            XCTAssertEqual(r?.source, .builtIn, "\(String(describing: empty)) must not count as a choice")
         }
+    }
+
+    // MARK: - Automatic is the microphone with the least delay
+
+    private func automatic(_ available: [AudioDevice], systemDefault: String?, builtIn: String?,
+                           times: [String: Double]) -> [String] {
+        AudioDeviceResolver.candidates(preferredUID: nil, available: available, systemDefaultUID: systemDefault,
+                                       builtInUID: builtIn, startTimes: times).map(\.device.uid)
+    }
+
+    func testAutomaticTakesTheFastestMeasuredMicrophone() {
+        XCTAssertEqual(automatic(machine, systemDefault: display, builtIn: builtIn,
+                                 times: [display: 450, scarlett: 540, builtIn: 60]),
+                       [builtIn, display, scarlett])
+    }
+
+    /// The Mac's own is not first by decree: something measured faster wins.
+    func testAFasterExternalMicrophoneBeatsTheMacsOwn() {
+        XCTAssertEqual(automatic(machine, systemDefault: display, builtIn: builtIn,
+                                 times: [scarlett: 20, builtIn: 60, display: 450]).first, scarlett)
+    }
+
+    /// Counter-check: the system's own choice no longer decides. Until 1.7 the
+    /// system default went first, however slow.
+    func testTheSystemDefaultDoesNotOutrankAFasterMicrophone() {
+        XCTAssertNotEqual(automatic(machine, systemDefault: display, builtIn: builtIn,
+                                    times: [display: 450, builtIn: 60]).first, display)
+    }
+
+    func testUnmeasuredTheMacsOwnCountsAsFastestAndTheSystemDefaultIsNext() {
+        XCTAssertEqual(automatic(machine, systemDefault: scarlett, builtIn: builtIn, times: [:]),
+                       [builtIn, scarlett, display])
+        XCTAssertEqual(automatic(machine, systemDefault: scarlett, builtIn: builtIn, times: [display: 450]),
+                       [builtIn, display, scarlett], "a measured device ranks ahead of one nobody has timed")
+    }
+
+    func testOnADesktopMacTheFastestExternalOneWins() {
+        let desktop = [device(display), device(scarlett, inputs: 4)]
+        XCTAssertEqual(automatic(desktop, systemDefault: display, builtIn: nil, times: [display: 450, scarlett: 300]).first,
+                       scarlett)
+        XCTAssertEqual(automatic(desktop, systemDefault: display, builtIn: nil, times: [:]).first, display,
+                       "nothing measured: the system's input")
+    }
+
+    func testAChoiceStillBeatsTheFastest() {
+        let list = AudioDeviceResolver.candidates(
+            preferredUID: display, available: machine, systemDefaultUID: scarlett, builtInUID: builtIn,
+            startTimes: [display: 450, scarlett: 540, builtIn: 60])
+        XCTAssertEqual(list.map(\.device.uid), [display, builtIn, scarlett],
+                       "the chosen one first, and behind it the fastest: the Mac's own is the fallback")
+    }
+
+    // MARK: - The line under the picker
+
+    func testTheCaptionSaysOnlyWhatThePickerDoesNot() {
+        XCTAssertEqual(AudioDeviceResolver.usageCaption(chosenName: nil, inUse: "MacBook Pro Microphone"),
+                       "Using MacBook Pro Microphone, the fastest to start.")
+        XCTAssertNil(AudioDeviceResolver.usageCaption(chosenName: "Scarlett Solo", inUse: "Scarlett Solo"),
+                     "the picker already says it")
+        XCTAssertEqual(AudioDeviceResolver.usageCaption(chosenName: "Scarlett Solo", inUse: "MacBook Pro Microphone"),
+                       "Using MacBook Pro Microphone instead.")
+        XCTAssertEqual(AudioDeviceResolver.usageCaption(chosenName: nil, inUse: nil), "No microphone found.")
     }
 
     // MARK: - Bluetooth is never chosen for you

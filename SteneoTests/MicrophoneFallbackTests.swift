@@ -32,10 +32,10 @@ final class MicrophoneFallbackTests: XCTestCase {
 
     // MARK: - The order
 
-    func testTheOrderIsChoiceThenSystemThenTheMacsOwnThenTheRest() {
+    func testTheOrderIsChoiceThenTheMacsOwnThenTheRestThenBluetooth() {
         let list = candidates(preferred: scarlett.uid, [macBook, airPods, display, scarlett], systemDefault: display)
-        XCTAssertEqual(list.map(\.device.uid), [scarlett.uid, display.uid, macBook.uid, airPods.uid])
-        XCTAssertEqual(list.map(\.source), [.chosen, .systemDefault, .builtIn, .lastResort])
+        XCTAssertEqual(list.map(\.device.uid), [scarlett.uid, macBook.uid, display.uid, airPods.uid])
+        XCTAssertEqual(list.map(\.source), [.chosen, .builtIn, .systemDefault, .lastResort])
     }
 
     func testNoDeviceAppearsTwice() {
@@ -57,7 +57,7 @@ final class MicrophoneFallbackTests: XCTestCase {
     // MARK: - THE case: present, but will not start
 
     func testADeviceThatWillNotStartHandsOverToTheMacsOwnMicrophone() {
-        let order = AudioDeviceResolver.attemptOrder(candidates([display, macBook], systemDefault: display), excluding: [])
+        let order = AudioDeviceResolver.attemptOrder(candidates(preferred: display.uid, [display, macBook], systemDefault: display), excluding: [])
         var tried: [String] = []
         let outcome = AudioDeviceResolver.firstWorking(order) { candidate in
             tried.append(candidate.device.uid)
@@ -78,7 +78,7 @@ final class MicrophoneFallbackTests: XCTestCase {
     }
 
     func testNothingWorkingIsReportedNotGuessed() {
-        let order = AudioDeviceResolver.attemptOrder(candidates([display, macBook], systemDefault: display), excluding: [])
+        let order = AudioDeviceResolver.attemptOrder(candidates(preferred: display.uid, [display, macBook], systemDefault: display), excluding: [])
         XCTAssertNil(AudioDeviceResolver.firstWorking(order) { _ in false })
     }
 
@@ -97,7 +97,7 @@ final class MicrophoneFallbackTests: XCTestCase {
     /// The second recording after a failure does not even attempt the broken
     /// device — and must still say that it is running on the fallback.
     func testAFallbackKeepsBeingAnnouncedWhileItLasts() {
-        let all = candidates([display, macBook], systemDefault: display)
+        let all = candidates(preferred: display.uid, [display, macBook], systemDefault: display)
         XCTAssertEqual(AudioDeviceResolver.outranked(by: macBook, in: all, unusable: [display.uid]),
                        [display.name], "passed over counts exactly like failed just now")
         XCTAssertEqual(AudioDeviceResolver.outranked(by: display, in: all, unusable: [display.uid]), [],
@@ -109,7 +109,7 @@ final class MicrophoneFallbackTests: XCTestCase {
     func testAFailedDeviceIsPassedOverWhileNothingChanged() {
         let failures = [AudioDeviceResolver.Failure(uid: display.uid, at: 1000, fingerprint: "A")]
         let passedOver = AudioDeviceResolver.activeFailures(failures, now: 1030, fingerprint: "A")
-        let order = AudioDeviceResolver.attemptOrder(candidates([display, macBook], systemDefault: display), excluding: passedOver)
+        let order = AudioDeviceResolver.attemptOrder(candidates(preferred: display.uid, [display, macBook], systemDefault: display), excluding: passedOver)
         XCTAssertEqual(order.first?.device.uid, macBook.uid,
                        "a device that just failed must not cost every recording its timeout again")
     }
@@ -128,7 +128,7 @@ final class MicrophoneFallbackTests: XCTestCase {
     }
 
     func testPassingEverythingOverIsNotAnOption() {
-        let all = candidates([display, macBook], systemDefault: display)
+        let all = candidates(preferred: display.uid, [display, macBook], systemDefault: display)
         let order = AudioDeviceResolver.attemptOrder(all, excluding: [display.uid, macBook.uid])
         XCTAssertEqual(order.first?.device.uid, display.uid, "with everything marked failed, everything is tried anyway")
     }

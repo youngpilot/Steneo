@@ -96,17 +96,20 @@ struct CapturePiece: Equatable, Sendable {
 /// time stamp of the hand-over. If the other one never delivers, the recording
 /// simply stays where it is. Bridge and fallback are one mechanism.
 ///
-/// STARTING walks an ordered list — chosen device, system default, the Mac's
-/// own, anything else — until one delivers a first buffer. A device that starts
+/// STARTING walks an ordered list — the chosen device, then every other one by
+/// how fast it starts — until one delivers a first buffer. A device that starts
 /// and delivers nothing has not started.
 ///
 /// THREADING: devices are opened and closed on `controlQueue`, their buffers
 /// arrive on `ioQueue`, and everything both sides share sits behind one lock.
 /// No device call is ever made while holding it.
 final class AudioCaptureService: @unchecked Sendable {
-    /// The device the user picked, by UID. `nil` means "follow the system
-    /// default". Read when a recording starts.
+    /// The device the user picked, by UID. `nil` means "Automatic": the
+    /// microphone that starts fastest. Read when a recording starts.
     var preferredDeviceUID: String?
+    /// What is known about how long each microphone takes to start, in
+    /// milliseconds by UID. Decides the order under "Automatic".
+    var startTimes: [String: Double] = [:]
     /// Reported once per successful start, when the microphone the recording
     /// ends up on is known: which one, and what was passed over to get there.
     var onStarted: (@Sendable (CaptureStartInfo) -> Void)?
@@ -203,6 +206,7 @@ final class AudioCaptureService: @unchecked Sendable {
         }
 
         let preferredUID = preferredDeviceUID
+        let startTimes = startTimes
         lock.lock()
         let unanswered = state.report
         let run = state.run + 1
@@ -214,13 +218,13 @@ final class AudioCaptureService: @unchecked Sendable {
         lock.unlock()
         unanswered?(.startFailed)   // a start nobody waited for still gets its answer
 
-        controlQueue.async { [self] in start(run: run, preferredUID: preferredUID) }
+        controlQueue.async { [self] in start(run: run, preferredUID: preferredUID, startTimes: startTimes) }
     }
 
-    private func start(run: Int, preferredUID: String?) {
+    private func start(run: Int, preferredUID: String?, startTimes: [String: Double]) {
         closeAll()   // nothing of an earlier recording stays open
         let snapshot = AudioDeviceResolver.snapshot()
-        let candidates = AudioDeviceResolver.candidates(preferredUID: preferredUID, in: snapshot)
+        let candidates = AudioDeviceResolver.candidates(preferredUID: preferredUID, in: snapshot, startTimes: startTimes)
         guard !candidates.isEmpty else {
             // No input at all: say so instead of a generic error nobody can act on.
             logger.error("Start refused: no usable audio input device")

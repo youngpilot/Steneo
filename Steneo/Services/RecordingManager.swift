@@ -234,6 +234,7 @@ final class RecordingManager {
         outputService.activeInsertionMode = profile.insertionMode
         let preferredMicrophone = SettingsStore.shared.preferredInputUID
         audioCaptureService.preferredDeviceUID = preferredMicrophone.isEmpty ? nil : preferredMicrophone
+        audioCaptureService.startTimes = SettingsStore.shared.inputStartTimes
         // Let the transcription service pull finished segments' raw audio for
         // background transcription during long recordings.
         transcriptionService.segmentProvider = { [audioCaptureService] in audioCaptureService.takeSegment() }
@@ -558,8 +559,10 @@ final class RecordingManager {
     /// this opens no device, so it is safe while idle.
     func refreshMicrophone() {
         guard !isRecording, !isStarting else { return }
-        let preferred = SettingsStore.shared.preferredInputUID
-        microphoneName = AudioDeviceResolver.current(preferredUID: preferred.isEmpty ? nil : preferred)?.device.name
+        let settings = SettingsStore.shared
+        let preferred = settings.preferredInputUID
+        microphoneName = AudioDeviceResolver.current(preferredUID: preferred.isEmpty ? nil : preferred,
+                                                     startTimes: settings.inputStartTimes)?.device.name
     }
 
     /// A recording went live: remember the microphone, and say so if it is not
@@ -567,7 +570,8 @@ final class RecordingManager {
     private func captureStarted(_ info: CaptureStartInfo) {
         microphoneName = info.device.name
         let settings = SettingsStore.shared
-        settings.inputStartTimes[info.device.uid] = info.startMilliseconds
+        // "Automatic" ranks microphones by this number, so only a real one is kept.
+        if info.startMilliseconds > 0 { settings.inputStartTimes[info.device.uid] = info.startMilliseconds }
         let notice = AudioDeviceResolver.notice(
             used: info.device, source: info.source, failedNames: info.failedNames,
             preferredName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName)

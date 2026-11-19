@@ -60,6 +60,7 @@ enum AudioDeviceResolver {
         case chosen = "chosen device"
         case systemDefault = "system default"
         case builtIn = "built-in microphone"
+        case other = "other input"
         case lastResort = "last remaining input"
     }
 
@@ -101,8 +102,13 @@ enum AudioDeviceResolver {
     // MARK: - Deciding (pure)
 
     /// Every usable input, in the order it should be tried: the device the user
-    /// picked (by UID) → the system default → the Mac's own microphone → any
-    /// other wired input → Bluetooth, last.
+    /// picked (by UID) → every other wired input, the one that starts fastest
+    /// first → Bluetooth, last.
+    ///
+    /// "Automatic" therefore means the microphone with the least delay. A
+    /// device's delay is what was measured for it (`startTimes`, milliseconds by
+    /// UID). Unmeasured, the Mac's own counts as fastest, because it is, and
+    /// anything else as slowest, with the system default ahead among equals.
     ///
     /// A LIST, not a single answer, because "the right device" can be present
     /// and still refuse to start. Until 1.6 that case retried the same device
@@ -111,7 +117,8 @@ enum AudioDeviceResolver {
         preferredUID: String?,
         available: [AudioDevice],
         systemDefaultUID: String?,
-        builtInUID: String?
+        builtInUID: String?,
+        startTimes: [String: Double] = [:]
     ) -> [Resolution] {
         let usable = available.filter(\.hasInput)
         var result: [Resolution] = []
@@ -130,9 +137,17 @@ enum AudioDeviceResolver {
         // Bluetooth while anything else exists: taking a headset as the
         // microphone costs its playback quality, which is a bad trade to make on
         // someone's behalf.
-        if let d = find(systemDefaultUID), !d.isBluetooth { add(d, .systemDefault) }
-        add(find(builtInUID), .builtIn)
-        for d in usable where !d.isBluetooth { add(d, .lastResort) }
+        func isBuiltIn(_ d: AudioDevice) -> Bool { d.isBuiltIn || d.uid == builtInUID }
+        func delay(_ d: AudioDevice) -> Double { startTimes[d.uid] ?? (isBuiltIn(d) ? 0 : .infinity) }
+        let wired = usable.enumerated().filter { !$0.element.isBluetooth }.sorted { a, b in
+            let (da, db) = (delay(a.element), delay(b.element))
+            if da != db { return da < db }
+            let (sa, sb) = (a.element.uid == systemDefaultUID, b.element.uid == systemDefaultUID)
+            return sa != sb ? sa : a.offset < b.offset
+        }
+        for (_, d) in wired {
+            add(d, isBuiltIn(d) ? .builtIn : d.uid == systemDefaultUID ? .systemDefault : .other)
+        }
         // Nothing else worked or exists: a Bluetooth microphone beats no recording.
         for d in usable { add(d, .lastResort) }
         return result
@@ -144,10 +159,11 @@ enum AudioDeviceResolver {
         preferredUID: String?,
         available: [AudioDevice],
         systemDefaultUID: String?,
-        builtInUID: String?
+        builtInUID: String?,
+        startTimes: [String: Double] = [:]
     ) -> Resolution? {
-        candidates(preferredUID: preferredUID, available: available,
-                   systemDefaultUID: systemDefaultUID, builtInUID: builtInUID).first
+        candidates(preferredUID: preferredUID, available: available, systemDefaultUID: systemDefaultUID,
+                   builtInUID: builtInUID, startTimes: startTimes).first
     }
 
     /// Which recent failures still count: same hardware state, and recent.
@@ -206,6 +222,15 @@ enum AudioDeviceResolver {
             return "Recording with \(used.name) – \(preferredName) isn't connected."
         }
         return nil
+    }
+
+    /// The one line under the picker, and only when it says something the
+    /// picker does not: which microphone "Automatic" landed on, or that the
+    /// chosen one is not the one in use. `chosenName` is nil for Automatic.
+    static func usageCaption(chosenName: String?, inUse: String?) -> String? {
+        guard let inUse else { return "No microphone found." }
+        guard let chosenName, !chosenName.isEmpty else { return "Using \(inUse), the fastest to start." }
+        return chosenName == inUse ? nil : "Using \(inUse) instead."
     }
 
     /// A microphone's name with the time it needs before it records, for the
@@ -267,17 +292,18 @@ enum AudioDeviceResolver {
                         systemDefaultUID: hasDefault ? inputs.first { $0.id == id }?.uid : nil)
     }
 
-    static func candidates(preferredUID: String?, in snapshot: Snapshot) -> [Resolution] {
-        candidates(preferredUID: preferredUID, available: snapshot.inputs,
-                   systemDefaultUID: snapshot.systemDefaultUID, builtInUID: snapshot.builtInUID)
+    static func candidates(preferredUID: String?, in snapshot: Snapshot,
+                           startTimes: [String: Double] = [:]) -> [Resolution] {
+        candidates(preferredUID: preferredUID, available: snapshot.inputs, systemDefaultUID: snapshot.systemDefaultUID,
+                   builtInUID: snapshot.builtInUID, startTimes: startTimes)
     }
 
     /// Every device that can record, in CoreAudio's order.
     static func inputDevices() -> [AudioDevice] { snapshot().inputs }
 
     /// Resolve against the hardware as it is right now.
-    static func current(preferredUID: String?) -> Resolution? {
-        candidates(preferredUID: preferredUID, in: snapshot()).first
+    static func current(preferredUID: String?, startTimes: [String: Double] = [:]) -> Resolution? {
+        candidates(preferredUID: preferredUID, in: snapshot(), startTimes: startTimes).first
     }
 
     /// nil for anything that cannot record — checked first, so output-only

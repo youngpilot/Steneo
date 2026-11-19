@@ -37,6 +37,7 @@ struct MenuBarView: View {
         }
         .padding(DesignTokens.Spacing.m)
         .frame(width: 360)
+        .background(DesignTokens.Color.backdrop.ignoresSafeArea())
         .contentShape(Rectangle())
         .focusEffectDisabled()
         .dropDestination(for: URL.self) { urls, _ in
@@ -153,7 +154,7 @@ struct MenuBarView: View {
             }
         }
         .padding(DesignTokens.Spacing.s)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
         .overlay(RoundedRectangle(cornerRadius: 8)
             .strokeBorder(Color.blue.opacity(0.3), lineWidth: 0.5))
     }
@@ -317,7 +318,7 @@ struct MenuBarView: View {
                 .controlSize(.small)
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.3), lineWidth: 0.5))
         }
 
@@ -333,7 +334,7 @@ struct MenuBarView: View {
                 Spacer()
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
         }
 
         // Transient status (copied / saved / file errors) — auto-dismissed
@@ -348,7 +349,7 @@ struct MenuBarView: View {
                 Spacer()
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder((status.isError ? Color.red : Color.green).opacity(0.3), lineWidth: 0.5))
             .transition(.opacity)
@@ -366,7 +367,7 @@ struct MenuBarView: View {
                 Spacer()
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8)
                 .strokeBorder(Color.orange.opacity(0.3), lineWidth: 0.5))
         }
@@ -398,7 +399,7 @@ struct MenuBarView: View {
                 .controlSize(.small)
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.orange.opacity(0.3), lineWidth: 0.5))
         }
 
@@ -423,7 +424,7 @@ struct MenuBarView: View {
                 .controlSize(.small)
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.orange.opacity(0.3), lineWidth: 0.5))
         }
 
@@ -457,7 +458,7 @@ struct MenuBarView: View {
                 }
                 .buttonStyle(.plain)
                 .padding(DesignTokens.Spacing.s)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(copyCardHover ? 0.07 : 0)))
                 .onHover { copyCardHover = $0 }
             }
@@ -656,7 +657,7 @@ struct MenuBarView: View {
                 .font(.body)
             }
             .padding(DesignTokens.Spacing.s)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .background(DesignTokens.Color.card, in: RoundedRectangle(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.red.opacity(0.3), lineWidth: 0.5))
         }
 
@@ -807,7 +808,7 @@ struct MenuBarView: View {
         .padding(DesignTokens.Spacing.s)
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 8).fill(.ultraThinMaterial)
+                RoundedRectangle(cornerRadius: 8).fill(DesignTokens.Color.card)
                 RoundedRectangle(cornerRadius: 8).fill(Color.primary.opacity(hoveredHistoryId == entry.id ? 0.12 : 0))
             }
         )
@@ -1225,7 +1226,7 @@ private struct SettingsCard<Content: View>: View {
         // Hovering anywhere over a collapsible category lifts the whole block.
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(DesignTokens.Color.card)
                 .overlay(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(Color.primary.opacity(blockHover && onToggle != nil ? 0.06 : 0))
@@ -1258,17 +1259,64 @@ private struct InlineSettingsView: View {
     /// Microphones for the picker, read when the Recording card opens.
     @State private var inputDevices: [AudioDevice] = []
 
-    /// What the picker cannot say by itself: what is actually in use, and that
-    /// the Mac's own microphone is always the net underneath.
-    private var microphoneCaption: String {
-        let inUse = recordingManager.microphoneName.map { "In use: \($0). " } ?? ""
-        // Without a built-in microphone (a desktop Mac) nothing can cover the
-        // start, and the time next to a device is time its recordings lose.
-        guard inputDevices.contains(where: \.isBuiltIn) else {
-            return inUse + "The time is how long a microphone needs before it records – speech before that is lost."
+    /// One line, and only when it says something the picker does not.
+    private var microphoneCaption: String? {
+        AudioDeviceResolver.usageCaption(
+            chosenName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName,
+            inUse: recordingManager.microphoneName)
+    }
+
+    /// The explanation lives in the tooltip, for whoever wants it.
+    private let microphoneHelp = "Automatic records with the microphone that starts fastest. "
+        + "The time next to each one is how long it needs. If you pick one yourself, "
+        + "the Mac's own microphone records until yours is ready."
+
+    /// What the closed picker shows: the name alone. The start time belongs in
+    /// the open list, where microphones are compared.
+    private var chosenMicrophoneLabel: String {
+        guard !settings.preferredInputUID.isEmpty else { return "Automatic" }
+        return inputDevices.first { $0.uid == settings.preferredInputUID }?.name
+            ?? "\(settings.preferredInputName) (not connected)"
+    }
+
+    private var microphonePicker: some View {
+        Picker("Microphone", selection: Binding(
+            get: { settings.preferredInputUID },
+            set: { uid in
+                settings.preferredInputUID = uid
+                settings.preferredInputName = inputDevices.first { $0.uid == uid }?.name ?? ""
+                recordingManager.refreshMicrophone()
+            }
+        )) {
+            Text("Automatic").tag("")
+            Divider()
+            ForEach(inputDevices) { device in
+                Text(AudioDeviceResolver.startLabel(
+                    name: device.name,
+                    milliseconds: settings.inputStartTimes[device.uid],
+                    isBluetooth: device.isBluetooth)).tag(device.uid)
+            }
+            // A chosen device that is unplugged right now stays selectable,
+            // so the choice survives until it is back.
+            if !settings.preferredInputUID.isEmpty,
+               !inputDevices.contains(where: { $0.uid == settings.preferredInputUID }) {
+                Text("\(settings.preferredInputName) (not connected)").tag(settings.preferredInputUID)
+            }
+        } currentValueLabel: {
+            Text(chosenMicrophoneLabel)
         }
-        return inUse + "The time is how long a microphone needs to start. Until then the Mac's own microphone records, "
-            + "and if yours doesn't start at all, the recording stays there and Steneo tells you."
+        .labelsHidden()
+    }
+
+    /// One quiet line under a control. Short, or it is not a hint.
+    private func hint(_ text: String, systemImage: String? = nil, tint: Color? = nil) -> some View {
+        let style = tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary)
+        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+            if let systemImage { Image(systemName: systemImage) }
+            Text(text).fixedSize(horizontal: false, vertical: true)
+        }
+        .font(.caption)
+        .foregroundStyle(style)
     }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
@@ -1489,40 +1537,23 @@ private struct InlineSettingsView: View {
 
             // Recording
             SettingsCard(title: "Recording", isExpanded: expandedSection == "Recording", onToggle: { toggleSection("Recording") }) {
+                // Input: which microphone, and when a recording ends by itself.
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack {
+                    HStack(spacing: DesignTokens.Spacing.s) {
                         Text("Microphone")
-                        Spacer()
-                        Picker("Microphone", selection: Binding(
-                            get: { settings.preferredInputUID },
-                            set: { uid in
-                                settings.preferredInputUID = uid
-                                settings.preferredInputName = inputDevices.first { $0.uid == uid }?.name ?? ""
-                                recordingManager.refreshMicrophone()
-                            }
-                        )) {
-                            Text("Automatic").tag("")
-                            ForEach(inputDevices) { device in
-                                Text(AudioDeviceResolver.startLabel(
-                                    name: device.name,
-                                    milliseconds: settings.inputStartTimes[device.uid],
-                                    isBluetooth: device.isBluetooth)).tag(device.uid)
-                            }
-                            // A chosen device that is unplugged right now stays
-                            // selectable, so the choice survives until it is back.
-                            if !settings.preferredInputUID.isEmpty,
-                               !inputDevices.contains(where: { $0.uid == settings.preferredInputUID }) {
-                                Text("\(settings.preferredInputName) (not connected)").tag(settings.preferredInputUID)
-                            }
+                            .fixedSize()
+                            .layoutPriority(1)
+                        // As wide as its content when that fits; otherwise the
+                        // name is shortened, never the label next to it.
+                        ViewThatFits(in: .horizontal) {
+                            microphonePicker.fixedSize()
+                            microphonePicker
                         }
-                        .labelsHidden()
-                        .fixedSize()
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     .font(labelFont)
-                    Text(microphoneCaption)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    .help(microphoneHelp)
+                    if let microphoneCaption { hint(microphoneCaption) }
                 }
                 // On the container, which always exists while the card is open:
                 // property reads only, no device is opened by listing them.
@@ -1531,8 +1562,9 @@ private struct InlineSettingsView: View {
                     recordingManager.refreshMicrophone()
                 }
                 // Once per microphone, ever: measure how long it takes to start.
-                // Opens the device for that moment, so not while recording, and
-                // never for Bluetooth (it would pull a headset into call mode).
+                // "Automatic" decides on these numbers. Opens the device for that
+                // moment, so not while recording, and never for Bluetooth (it
+                // would pull a headset into call mode).
                 .task(id: inputDevices.map(\.uid)) {
                     guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
                     for device in inputDevices where !device.isBluetooth && settings.inputStartTimes[device.uid] == nil {
@@ -1542,47 +1574,7 @@ private struct InlineSettingsView: View {
                         }.value
                         if let measured { settings.inputStartTimes[device.uid] = measured }
                     }
-                }
-
-                Toggle("Mute Media Playback while recording", isOn: Binding(
-                    get: { settings.silenceMediaWhileRecording },
-                    set: { settings.silenceMediaWhileRecording = $0 }
-                ))
-                .font(labelFont)
-
-                if settings.silenceMediaWhileRecording, !audioService.supportsVolumeControl {
-                    HStack(alignment: .top, spacing: 6) {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                        Text("This audio device can't be muted by software.")
-                            .foregroundStyle(.orange)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .font(labelFont)
-                }
-
-                Toggle("Pause Spotify & Apple Music", isOn: Binding(
-                    get: { settings.pauseMediaApps },
-                    set: { settings.pauseMediaApps = $0 }
-                ))
-                .font(labelFont)
-
-                if settings.pauseMediaApps {
-                    if let app = audioService.detectedMediaApp {
-                        HStack(alignment: .top, spacing: 6) {
-                            Image(systemName: "pause.circle.fill")
-                                .foregroundStyle(.blue)
-                            Text("\(app) detected — it pauses while you record and resumes after.")
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .font(labelFont)
-                    } else {
-                        Text("Pauses Spotify or Apple Music if either is playing. macOS asks for Automation permission the first time.")
-                            .font(labelFont)
-                            .foregroundStyle(.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    recordingManager.refreshMicrophone()
                 }
 
                 settingsRow("Stop after silence") {
@@ -1596,6 +1588,36 @@ private struct InlineSettingsView: View {
                     }
                     .labelsHidden()
                     .fixedSize()
+                }
+
+                Divider().opacity(0.5)
+
+                // Other audio while a recording runs.
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Mute Media Playback while recording", isOn: Binding(
+                        get: { settings.silenceMediaWhileRecording },
+                        set: { settings.silenceMediaWhileRecording = $0 }
+                    ))
+                    .font(labelFont)
+                    if settings.silenceMediaWhileRecording, !audioService.supportsVolumeControl {
+                        hint("This audio device can't be muted by software.",
+                             systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Toggle("Pause Spotify & Apple Music", isOn: Binding(
+                        get: { settings.pauseMediaApps },
+                        set: { settings.pauseMediaApps = $0 }
+                    ))
+                    .font(labelFont)
+                    if settings.pauseMediaApps {
+                        if let app = audioService.detectedMediaApp {
+                            hint("\(app) pauses while you record.", systemImage: "pause.circle.fill")
+                        } else {
+                            hint("macOS asks for permission the first time.")
+                        }
+                    }
                 }
             }
 

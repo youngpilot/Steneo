@@ -31,8 +31,13 @@ final class InstantStartTests: XCTestCase {
     // MARK: - Who bridges
 
     func testTheMacsOwnMicrophoneBridgesForASlowerOne() {
-        let bridge = AudioDeviceResolver.bridge(in: order([display, macBook], systemDefault: display))
+        let bridge = AudioDeviceResolver.bridge(in: order(preferred: display.uid, [display, macBook], systemDefault: display))
         XCTAssertEqual(bridge?.device.uid, macBook.uid)
+    }
+
+    /// Automatic already records with the fastest microphone: nothing to cover.
+    func testAutomaticNeedsNoBridge() {
+        XCTAssertNil(AudioDeviceResolver.bridge(in: order([display, macBook], systemDefault: display)))
     }
 
     func testItBridgesForAChosenHeadsetToo() {
@@ -44,13 +49,13 @@ final class InstantStartTests: XCTestCase {
         XCTAssertNil(AudioDeviceResolver.bridge(in: order([display, macBook], systemDefault: macBook)),
                      "it would bridge for itself")
         // The first choice just failed and is being passed over: the Mac's own is first now.
-        XCTAssertNil(AudioDeviceResolver.bridge(in: order([display, macBook], systemDefault: display,
+        XCTAssertNil(AudioDeviceResolver.bridge(in: order(preferred: display.uid, [display, macBook], systemDefault: display,
                                                           excluding: [display.uid])))
     }
 
     func testNoBridgeWithoutABuiltInMicrophone() {
         XCTAssertNil(AudioDeviceResolver.bridge(in: order([display], systemDefault: display)), "a desktop Mac has none")
-        XCTAssertNil(AudioDeviceResolver.bridge(in: order([display, macBook], systemDefault: display,
+        XCTAssertNil(AudioDeviceResolver.bridge(in: order(preferred: display.uid, [display, macBook], systemDefault: display,
                                                           excluding: [macBook.uid])),
                      "one that just failed is not something to lean on")
     }
@@ -154,13 +159,16 @@ final class InstantStartTests: XCTestCase {
     func testARecordingIsLiveBeforeItsMicrophoneIsAndLosesNothing() throws {
         let status = AVCaptureDevice.authorizationStatus(for: .audio)
         try XCTSkipUnless(status == .authorized, "needs microphone access; got \(status.rawValue)")
+        // A bridge only exists for a CHOSEN microphone that is not the Mac's own.
         let snapshot = AudioDeviceResolver.snapshot()
-        let order = AudioDeviceResolver.attemptOrder(AudioDeviceResolver.candidates(preferredUID: nil, in: snapshot),
-                                                     excluding: [])
+        let chosen = snapshot.inputs.first { !$0.isBuiltIn && !$0.isBluetooth }
+        let order = AudioDeviceResolver.attemptOrder(
+            AudioDeviceResolver.candidates(preferredUID: chosen?.uid, in: snapshot), excluding: [])
         let bridge = AudioDeviceResolver.bridge(in: order)
-        try XCTSkipIf(bridge == nil, "nothing to bridge here: the Mac's own microphone is the first choice, or there is none")
+        try XCTSkipIf(bridge == nil, "nothing to bridge here: no external microphone, or no built-in one")
 
         let service = AudioCaptureService()
+        service.preferredDeviceUID = chosen?.uid
         let box = Box()
         let live = expectation(description: "first audio kept")
         let settled = expectation(description: "final microphone known")
