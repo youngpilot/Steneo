@@ -32,8 +32,11 @@ guard CommandLine.arguments.contains("--confirm")
 
 let source = CGEventSource(stateID: .hidSystemState)
 
+/// A name of its own per run. On 19.11.2026 an aborted run left its document
+/// open, the next run replaced the file underneath it, TextEdit dropped the
+/// document, and every paste went nowhere.
 let scratch = URL(fileURLWithPath: NSTemporaryDirectory())
-    .appendingPathComponent("steneo-insertion-check.txt")
+    .appendingPathComponent("steneo-check-\(ProcessInfo.processInfo.processIdentifier).txt")
 
 @discardableResult
 func osa(_ script: String) -> String {
@@ -72,9 +75,27 @@ func osaRaw(_ script: String) -> String {
 /// comes back empty — which reads like character loss and is not.
 let docName = scratch.lastPathComponent
 
+/// Close the document and remove the file, then exit. `defer` does not run on
+/// `exit()`, which is how a failed run used to leave its window behind.
+func finish(_ code: Int32) -> Never {
+    osa("tell application \"TextEdit\" to close document \"\(docName)\" saving no")
+    try? FileManager.default.removeItem(at: scratch)
+    exit(code)
+}
+
 func openScratch() {
     try? "".write(to: scratch, atomically: true, encoding: .utf8)
     osa("tell application \"TextEdit\" to open POSIX file \"\(scratch.path)\"")
+    // Opening is not instant. Wait until the document really exists instead of
+    // pasting at a window that is not there yet.
+    for _ in 0..<25 {
+        if osa("tell application \"TextEdit\" to get name of every document").contains(docName) { break }
+        Thread.sleep(forTimeInterval: 0.2)
+    }
+    guard osa("tell application \"TextEdit\" to get name of every document").contains(docName) else {
+        print("ABORT: TextEdit did not open the scratch document — nothing was measured.")
+        finish(2)
+    }
     focusScratch()
 }
 
@@ -143,7 +164,7 @@ func requireWorkingTarget(_ label: String) {
     let front = frontmostApp()
     guard front == "TextEdit" else {
         print("ABORT (\(label)): TextEdit is not frontmost — \(front) is. Nothing was measured.")
-        exit(2)
+        finish(2)
     }
     // The control goes in through the SAME route the measurement uses — a
     // clipboard paste. Writing via AppleScript would prove only that AppleScript
@@ -157,7 +178,7 @@ func requireWorkingTarget(_ label: String) {
         if attempt == 4 {
             print("ABORT (\(label)): the window does not accept keystrokes — nothing was measured.")
             print("  control text never arrived after 4 attempts.")
-            exit(2)
+            finish(2)
         }
         focusScratch()
     }
@@ -234,10 +255,6 @@ func measured(_ label: String, _ text: String, _ send: (String) -> Void) -> Stri
 }
 
 openScratch()
-defer {
-    osa("tell application \"TextEdit\" to close document \"\(docName)\" saving no")
-    try? FileManager.default.removeItem(at: scratch)
-}
 
 var clipboardFailures = 0
 var typingFailures = 0
@@ -263,6 +280,7 @@ print("clipboard (what Auto uses): \(cases.count - clipboardFailures)/\(cases.co
 print("direct typing (opt-in):     \(cases.count - typingFailures)/\(cases.count) exact")
 if clipboardFailures > 0 {
     print("RESULT: FAILED — the path Auto uses lost characters. Do not ship.")
-    exit(1)
+    finish(1)
 }
 print("RESULT: PASS — the path Auto uses is character-exact.")
+finish(0)
