@@ -17,26 +17,11 @@ APP_PATH="$BUILD_DIR/$DIST_NAME.app"                     # renamed distributable
 DMG_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.dmg"
 ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 
-# --- Both gates take over this Mac. Say so, and ask. ------------------------
-# On 04.09.2026 check B ran four times unannounced while the user was working:
-# it changed the volume, spoke out loud and quit his running Steneo. Worse, he
-# was wearing headphones, so it measured nothing and reported the app as broken.
-cat <<'NOTE'
-The two release gates take over this Mac for a few minutes:
-  A · opens TextEdit and types into it (silent)
-  B · turns the volume up, speaks one sentence OUT LOUD, quits the running
-      Steneo and runs the build under test instead
-Everything is put back afterwards.
-
-Check B needs SPEAKERS. With headphones the microphone cannot hear the Mac and
-the check has nothing to measure — it will refuse rather than guess.
-NOTE
-read -r -p "Run the gates now? [y/N] " answer
-case "$answer" in
-    [yY]|[yY][eE][sS]) ;;
-    *) echo "Aborted before anything was touched."; exit 1 ;;
-esac
-export STENEO_GATE_CONFIRM=1
+# --- What this run needs from you ----------------------------------------------
+# One spoken sentence, once the build is installed (a notification asks for it).
+# Nothing here plays sound, changes the volume or switches audio devices. TextEdit
+# comes to the front only when the insertion code changed since the last release.
+echo "This release will ask you to dictate ONE sentence after the build (a notification tells you when)."
 echo ""
 
 # --- Source invariants that a test cannot check ------------------------------
@@ -49,23 +34,44 @@ if ! "$PROJECT_DIR/scripts/check-audio-threading.sh"; then
 fi
 echo ""
 
-# --- Gate A: does text survive insertion character for character? ------------
-# Notarisation and Gatekeeper say nothing about whether the product works. This
-# release shipped a character-dropping insertion path three times because the
-# pipeline only ever checked signatures. It stops here now.
-echo "=== Gate A: insertion fidelity (opens TextEdit briefly) ==="
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
-    "$PROJECT_DIR/scripts/check-insertion.swift" -o /tmp/steneo-check-insertion
-A_STATUS=0
-/tmp/steneo-check-insertion || A_STATUS=$?
-if [ "$A_STATUS" -eq 2 ] || [ "$A_STATUS" -eq 3 ]; then
-    echo "ABORT: check A could not measure anything (see above). This says NOTHING"
-    echo "       about the build. Fix the setup and run the release again."
+# --- Unit tests: silent, about 15 seconds, part of every release -------------
+echo "=== Unit tests ==="
+TEST_LOG="$(mktemp -t steneo-tests)"
+if ! DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
+        -project "$PROJECT_DIR/Steneo.xcodeproj" -scheme "$BUILD_NAME" \
+        -configuration Debug test > "$TEST_LOG" 2>&1; then
+    grep -E "error:|failed" "$TEST_LOG" | head -20
+    echo "ABORT: unit tests failed. Nothing was released. Full log: $TEST_LOG"
     exit 1
 fi
-if [ "$A_STATUS" -ne 0 ]; then
-    echo "ABORT: insertion is not character-exact. Nothing was released."
-    exit 1
+grep -E "Executed [0-9]+ tests, with" "$TEST_LOG" | tail -1
+echo ""
+
+# --- Check A: character-exact insertion — ONLY when insertion changed --------
+# The check drives a copy of OutputService's two mechanisms into TextEdit. It
+# says something new only when that code (or the check itself) changed since
+# the last release; otherwise it takes the keyboard for half a minute to
+# re-prove what the previous release already proved.
+LAST_TAG="$(git -C "$PROJECT_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
+INSERTION_FILES="Steneo/Services/OutputService.swift scripts/check-insertion.swift"
+if [ -n "$LAST_TAG" ] && git -C "$PROJECT_DIR" diff --quiet "$LAST_TAG"..HEAD -- $INSERTION_FILES \
+        && git -C "$PROJECT_DIR" diff --quiet -- $INSERTION_FILES; then
+    echo "=== Check A skipped: insertion code unchanged since $LAST_TAG ==="
+else
+    echo "=== Check A: insertion fidelity (TextEdit comes to the front for ~30 s) ==="
+    DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
+        "$PROJECT_DIR/scripts/check-insertion.swift" -o /tmp/steneo-check-insertion
+    A_STATUS=0
+    STENEO_GATE_CONFIRM=1 /tmp/steneo-check-insertion || A_STATUS=$?
+    if [ "$A_STATUS" -eq 2 ] || [ "$A_STATUS" -eq 3 ]; then
+        echo "ABORT: check A could not measure anything (see above). This says NOTHING"
+        echo "       about the build. Fix the setup and run the release again."
+        exit 1
+    fi
+    if [ "$A_STATUS" -ne 0 ]; then
+        echo "ABORT: insertion is not character-exact. Nothing was released."
+        exit 1
+    fi
 fi
 echo ""
 
@@ -101,18 +107,15 @@ codesign -dv --verbose=2 "$APP_PATH" 2>&1 | grep -E "Authority|Identifier|Runtim
 codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
 echo ""
-echo "=== Gate B: press, speak, text arrives (speaks out loud, ~1 min) ==="
-# macOS grants microphone access per bundle PATH, so a freshly built bundle in
-# build/ is a different app to TCC and is simply denied. The only place this
-# check can measure the artifact is where the app is installed. So: install the
-# exact bundle being released, gate it THERE, and keep the previous one to fall
-# back to. The bits under test are the bits that ship.
+echo "=== Check B: dictate one sentence ==="
+# macOS grants microphone access per bundle PATH, so the build is checked where
+# the app is installed: install the exact bundle being released, keep the
+# previous one to fall back to. The bits under test are the bits that ship.
 INSTALLED="/Applications/$DIST_NAME.app"
 BACKUP="$BUILD_DIR/previously-installed.app"
 if [ -d "$INSTALLED" ]; then
     rm -rf "$BACKUP"
     cp -R "$INSTALLED" "$BACKUP"
-    echo "· previous install kept at $BACKUP"
 fi
 osascript -e "tell application \"$DIST_NAME\" to quit" >/dev/null 2>&1 || true
 sleep 2
@@ -121,7 +124,7 @@ sleep 1
 rm -rf "$INSTALLED"
 cp -R "$APP_PATH" "$INSTALLED"
 open -a "$INSTALLED"
-sleep 3
+sleep 4
 
 restore_previous_install() {
     if [ -d "$BACKUP" ]; then
@@ -136,21 +139,17 @@ restore_previous_install() {
     fi
 }
 
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcrun swiftc -O \
-    "$PROJECT_DIR/scripts/check-core-chain.swift" -o /tmp/steneo-check-core-chain
 B_STATUS=0
-/tmp/steneo-check-core-chain --use-speakers "$INSTALLED" || B_STATUS=$?
-if [ "$B_STATUS" -eq 2 ] || [ "$B_STATUS" -eq 3 ]; then
-    # 2 = could not measure (headphones, no mic, muted), 3 = not confirmed.
-    # Neither is a statement about the app, so neither may read as one.
+"$PROJECT_DIR/scripts/check-dictation.sh" || B_STATUS=$?
+if [ "$B_STATUS" -eq 2 ]; then
     restore_previous_install
-    echo "ABORT: check B could not measure anything (see above). This says NOTHING"
-    echo "       about the build. Fix the setup and run the release again."
+    echo "ABORT: check B had nothing to judge (see above). This says NOTHING about"
+    echo "       the build. Run the release again and dictate a sentence when asked."
     exit 1
 fi
 if [ "$B_STATUS" -ne 0 ]; then
     restore_previous_install
-    echo "ABORT: the core chain failed on the build being released. Nothing was released."
+    echo "ABORT: the dictation broke on the build being released. Nothing was released."
     exit 1
 fi
 
