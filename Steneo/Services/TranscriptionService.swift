@@ -195,8 +195,10 @@ final class TranscriptionService {
         finalize(Self.assembleSegments(ordered, tail: tail))
         // Name the reason instead of returning a bare "". An empty string used to
         // be the single answer to four very different failures.
+        // After a segment cut `rawSamples` is only the tail. A long recording must
+        // not be called "too short" (or "no samples") because its tail is.
         lastFailure = RecordingFailure.classify(
-            sampleCount: rawSamples.count,
+            sampleCount: segmentIndex > 0 ? Int.max : rawSamples.count,
             minimumSamples: Self.minimumSamples(atRate: rate),
             asrThrew: tailTranscribeThrew,
             transcript: currentText)
@@ -225,8 +227,8 @@ final class TranscriptionService {
     /// de-stutter. Returns "" on too-short/failure. The word-replacement/voice-command
     /// pass runs ONCE on the assembled text (`finalize`), not per chunk.
     private func rawTranscribe(_ rawSamples: [Float], rate: Double) async -> String {
-        let samples = (rate <= 0 || rate == 16000) ? rawSamples : Self.resample(rawSamples, from: rate)
-        guard samples.count >= 1600 else { return "" }   // < ~0.1 s of audio — nothing to do
+        let resampled = (rate <= 0 || rate == 16000) ? rawSamples : Self.resample(rawSamples, from: rate)
+        guard let samples = Self.paddedForModel(resampled) else { return "" }   // too short to hold a word
         do {
             let asr = try await batchEngine()
             let result = try await asr.transcribe(samples, source: .microphone)
@@ -240,11 +242,24 @@ final class TranscriptionService {
         }
     }
 
-    /// Below this there is nothing to transcribe: `rawTranscribe` needs 1600
-    /// samples AFTER resampling to 16 kHz, which is a tenth of a second at any
-    /// input rate.
+    /// The model refuses anything under one second of 16 kHz audio ("Invalid
+    /// audio data provided"). A spoken "Ja, passt." is shorter than that, and
+    /// until 1.6 it was reported as a failed transcription. So short audio is
+    /// padded with silence up to the second the model needs — from 0.3 s on,
+    /// below which there is no room for a word and nothing is attempted.
+    nonisolated static let modelMinimumSamples = 16_000
+    nonisolated static let shortestSpeechSamples = 4_800
+    nonisolated static func paddedForModel(_ samples: [Float]) -> [Float]? {
+        guard samples.count >= shortestSpeechSamples else { return nil }
+        guard samples.count < modelMinimumSamples else { return samples }
+        return samples + [Float](repeating: 0, count: modelMinimumSamples - samples.count)
+    }
+
+    /// A recording shorter than this that produced no text is simply "too
+    /// short" — almost always a shortcut pressed twice — not a failure worth
+    /// keeping audio for. One second, at any input rate.
     nonisolated static func minimumSamples(atRate rate: Double) -> Int {
-        rate > 0 ? Int((rate * 0.1).rounded(.up)) : 1600
+        rate > 0 ? Int(rate.rounded(.up)) : modelMinimumSamples
     }
 
     /// Apply the shared text pipeline (word replacements + voice commands) ONCE over

@@ -2,6 +2,23 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.6
+
+### Added
+- **Choose your microphone.** Settings → Recording → Microphone: *Automatic* follows the system input, or pick a specific device. The choice is stored by the device's permanent identifier, so it survives unplugging, and a device that is not connected right now stays selected.
+- **A microphone that won't start no longer costs you the recording.** Steneo tries your chosen device, then the system input, then the Mac's own microphone, until one actually starts and delivers audio. Until now a device that was present but refused to start ended the recording before it began, with a working built-in microphone sitting unused.
+- **Steneo tells you when it switched.** A notice in the menu names the microphone in use and the one that did not respond. It stays until a recording runs on your usual device again.
+
+### Fixed
+- **Holding F5 a moment too long stopped the recording right away.** The keyboard's auto-repeat counted as a second press, and it arrives faster than a recording takes to start.
+- **Very short recordings were reported as "Transcription failed".** The speech model needs a full second of audio. Shorter recordings are now padded with silence, so a quick "Yes, fine." works. Below about a third of a second there is nothing to transcribe, and Steneo says "too short" without keeping a file.
+- **Long recordings use far less memory.** Audio that was already transcribed in the background is released right away instead of being held until the end (up to 115 MB at ten minutes).
+
+### Under the hood
+- Every start logs where its time went. The finding so far: some external microphones need several hundred milliseconds to start, the Mac's own a few dozen. If a fast start matters most, pick the Mac's microphone.
+- Every stop logs what caused it.
+- The app is inert while it hosts its own unit tests: no global shortcut, no sounds.
+
 ## 1.4.5
 
 ### Fixed

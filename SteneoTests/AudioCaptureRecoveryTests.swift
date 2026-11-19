@@ -37,30 +37,6 @@ final class AudioCaptureRecoveryTests: XCTestCase {
         return box.result.flatMap { $0 }
     }
 
-    // MARK: - The recovery policy (no microphone needed)
-
-    func testRecoveryRebuildsBeforeRetrying() {
-        var order: [String] = []
-        let ok = AudioCaptureService.retryAfterRebuild(
-            rebuild: { order.append("rebuild") },
-            start: { order.append("start") },
-            onError: { _ in order.append("error") })
-        XCTAssertTrue(ok)
-        XCTAssertEqual(order, ["rebuild", "start"], "rebuilding first is the whole point — retrying the same wedged engine changes nothing")
-    }
-
-    func testRecoveryGivesUpAfterOneRetry() {
-        var starts = 0
-        var reported: Error?
-        let ok = AudioCaptureService.retryAfterRebuild(
-            rebuild: {},
-            start: { starts += 1; throw NSError(domain: NSOSStatusErrorDomain, code: -10868) },
-            onError: { reported = $0 })
-        XCTAssertFalse(ok)
-        XCTAssertEqual(starts, 1, "one retry, not an endless loop against dead hardware")
-        XCTAssertEqual((reported as NSError?)?.code, -10868, "the real reason must reach the log, not a generic failure")
-    }
-
     /// The whole point of the fix: a start that fails must rebuild the engine and
     /// come back up, rather than reporting failure and leaving the app stuck.
     func testStartRecoversFromAWedgedEngine() throws {

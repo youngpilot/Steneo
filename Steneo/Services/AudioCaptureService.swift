@@ -6,6 +6,15 @@ import os
 
 private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "AudioCapture")
 
+/// What a successful start ended up on — so a fallback is something the app can
+/// say out loud instead of something that silently happened.
+struct CaptureStartInfo: Equatable, Sendable {
+    let device: AudioDevice
+    let source: AudioDeviceResolver.Source
+    /// Devices that were tried first and did not start, in order.
+    let failedNames: [String]
+}
+
 /// Captures microphone audio as 16 kHz mono for the ASR.
 ///
 /// THE RULE, since 1.4.3: while no recording is running, this class holds NO
@@ -14,12 +23,16 @@ private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "Audio
 /// `stopCapture()`.
 ///
 /// That is not tidiness. Merely touching `engine.inputNode` makes CoreAudio
-/// select and open an input device — and an open input device forces a
-/// Bluetooth headset out of high-quality playback into the mono call profile.
-/// Steneo used to warm the engine at launch and keep it warm between
-/// recordings, so simply having the app running degraded the user's AirPods.
-/// Building on demand costs about 200 ms at the start of a recording, which is
-/// exactly what the orange "arming" icon is for.
+/// select and open an input device, and Steneo used to keep one open for as
+/// long as it was running. The price is paid at the start of every recording:
+/// measured on 19.11.2026 at about 615 ms from shortcut to live microphone, not
+/// the 200 ms this comment used to promise. Every start now logs where that
+/// time went, so the next cut is made on numbers.
+///
+/// STARTING, since 1.6: a start walks an ordered list of microphones — chosen
+/// device, system default, the Mac's own, anything else — until one actually
+/// starts AND delivers a first buffer. "The right device" can be present and
+/// still refuse to start; that used to end the recording before it began.
 ///
 /// THREADING: every AVAudioEngine operation (prepare / tap install / start /
 /// stop) runs on the single serial `engineQueue`. AVAudioEngine is not
@@ -34,7 +47,7 @@ final class AudioCaptureService: @unchecked Sendable {
     /// back to a device without an input, and every start fails. Rebuilding the
     /// engine did not help, because the replacement asked for the same dead
     /// number: on 04.09.2026 that loop ran at nine rebuilds per second for over
-    /// four hours. The fix is `applyInputDevice()` — name the device explicitly,
+    /// four hours. The fix is `select(_:)` — name the device explicitly,
     /// by its stable UID, before anything reads a format. Rebuilding is now only
     /// what it should always have been: a response to a REAL change.
     private var engine = AVAudioEngine()
@@ -63,8 +76,7 @@ final class AudioCaptureService: @unchecked Sendable {
     /// blocks the main thread waiting on this queue deadlocks.
     func primeInputChainForTesting(completion: @escaping @Sendable (Bool) -> Void) {
         engineQueue.async { [self] in
-            refreshTapIfNeeded()
-            completion(builtSignature != nil)
+            completion(buildChainForCurrentInput())
         }
     }
     #endif
@@ -90,6 +102,25 @@ final class AudioCaptureService: @unchecked Sendable {
     /// Reported when the fuse blows or no input device exists at all — so the
     /// failure is visible instead of being a microphone that quietly does nothing.
     var onInputUnavailable: (@Sendable (String) -> Void)?
+    /// Reported on every successful start: which microphone, and what was
+    /// passed over to get there.
+    var onStarted: (@Sendable (CaptureStartInfo) -> Void)?
+
+    /// Devices that recently refused to start. Passed over while the hardware
+    /// looks the same, so a broken device costs its timeout once, not at every
+    /// recording. engineQueue only.
+    private var failures: [AudioDeviceResolver.Failure] = []
+    /// Where the time of the current start went, in milliseconds. engineQueue only.
+    private var timing = StartTiming()
+    private struct StartTiming {
+        var attempts = 0
+        var select = 0.0, tap = 0.0, prepare = 0.0, engine = 0.0, firstBuffer = 0.0
+    }
+    /// A started engine that delivers nothing is not a start. How long a device
+    /// gets to produce its first buffer: wired devices answer within ~100 ms,
+    /// Bluetooth has to switch profiles first.
+    private static let firstBufferLimit: TimeInterval = 0.7
+    private static let firstBufferLimitBluetooth: TimeInterval = 2.5
 
     // Raw recorded audio (ch0, at the input sample rate) for ONE clean conversion
     // at stop — per-buffer resampling warms its filter each clip and garbles short
@@ -100,6 +131,9 @@ final class AudioCaptureService: @unchecked Sendable {
     /// behind whatever engine work is queued.
     private let heartbeatLock = NSLock()
     private var lastBufferAt: TimeInterval = 0
+    /// Signalled by the tap when the first buffer of a start arrives. Guarded by
+    /// `heartbeatLock`.
+    private var firstBufferSignal: DispatchSemaphore?
 
     /// How long ago audio last arrived, or nil if none has since capture started.
     /// This is what makes "the microphone went deaf" observable at all.
@@ -120,8 +154,10 @@ final class AudioCaptureService: @unchecked Sendable {
     private let bufferLock = NSLock()
     private var rawRecording: [Float] = []
     private var rawRate: Double = 0
-    private var segmentStart = 0   // index of the first sample not yet handed off to a segment cut
     private static let maxRaw = 48_000 * 60 * 10   // ~10 min @ 48 kHz cap
+    /// Trim back to the cap only once this far over it. Trimming on every buffer
+    /// moved 115 MB twelve times a second once a recording passed ten minutes.
+    private static let trimSlack = 48_000 * 5
 
     // Per-recording sinks; the tap forwards to them only while `active`.
     private var onBuffer: (@Sendable (AVAudioPCMBuffer) -> Void)?
@@ -147,15 +183,6 @@ final class AudioCaptureService: @unchecked Sendable {
     deinit {
         if let configObserver { NotificationCenter.default.removeObserver(configObserver) }
     }
-
-    /// Deliberately does nothing to the audio hardware.
-    ///
-    /// This used to install a tap and call `engine.prepare()` at launch. Both
-    /// touch `inputNode`, which opens an input device and keeps it open for the
-    /// life of the app — the reason a running Steneo could ruin Bluetooth
-    /// playback without ever recording. The ~200 ms it saved is not worth
-    /// holding someone's microphone open all day.
-    func prepareEngine() {}
 
     private func handleConfigurationChange(from sender: ObjectIdentifier?) {
         engineQueue.async { [self] in
@@ -190,6 +217,7 @@ final class AudioCaptureService: @unchecked Sendable {
                 break
             }
 
+            failures.removeAll()   // the hardware really changed: every device gets a fresh chance
             let wasCapturing = active
             logger.info("Audio input changed to \(signature, privacy: .public) (capturing: \(wasCapturing, privacy: .public)) — rebuilding")
             rebuildEngine()
@@ -221,53 +249,80 @@ final class AudioCaptureService: @unchecked Sendable {
 
     /// Name the input device explicitly, before anything reads a format.
     ///
-    /// This is the whole fix: the resolution runs fresh on every call and uses
-    /// stable UIDs, so a device that came back with a new `AudioDeviceID` is
-    /// found again, and a device that is gone falls through to the system
-    /// default, then to the built-in microphone. engineQueue only, engine stopped.
-    @discardableResult
-    private func applyInputDevice() -> AudioDeviceResolver.Resolution? {
-        guard let resolution = AudioDeviceResolver.current(preferredUID: preferredDeviceUID) else {
-            logger.error("No usable audio input device")
-            return nil
-        }
+    /// The engine never chooses: it used to remember a transient device number,
+    /// and a number that went stale took recording down with it. engineQueue
+    /// only, engine stopped. Returns false when the device cannot be selected —
+    /// the caller moves on to the next one instead of recording on a guess.
+    private func select(_ device: AudioDevice) -> Bool {
         guard let unit = engine.inputNode.audioUnit else {
-            logger.error("Input node has no audio unit — cannot pin the device")
-            return resolution
+            logger.error("Input node has no audio unit — cannot select \(device.name, privacy: .public)")
+            return false
         }
-        var deviceID = resolution.device.id
+        var deviceID = device.id
         let status = AudioUnitSetProperty(
             unit, kAudioOutputUnitProperty_CurrentDevice, kAudioUnitScope_Global, 0,
             &deviceID, UInt32(MemoryLayout<AudioDeviceID>.size))
-        if status != noErr {
-            logger.error("Could not select input device \(resolution.device.name, privacy: .public): OSStatus \(status, privacy: .public)")
-            return resolution
-        }
-        if resolution.source != .chosen && resolution.source != .systemDefault {
-            // A fallback is a fact worth seeing, not a detail.
-            logger.info("Falling back to \(resolution.device.name, privacy: .public) (\(resolution.source.rawValue, privacy: .public))")
-        } else {
-            logger.debug("Input device: \(resolution.device.name, privacy: .public) (\(resolution.source.rawValue, privacy: .public))")
-        }
-        return resolution
-    }
-
-    /// The recovery policy after a failed engine start: rebuild once, try once
-    /// more, then give up. Split out so it can be verified without a microphone —
-    /// the machine that hit this bug is not the machine the tests run on.
-    static func retryAfterRebuild(
-        rebuild: () -> Void,
-        start: () throws -> Void,
-        onError: (Error) -> Void
-    ) -> Bool {
-        rebuild()
-        do {
-            try start()
-            return true
-        } catch {
-            onError(error)
+        guard status == noErr else {
+            logger.error("Could not select \(device.name, privacy: .public): OSStatus \(status, privacy: .public)")
             return false
         }
+        return true
+    }
+
+    /// Build the input chain for ONE device on the current engine: select it,
+    /// read the format the hardware really has, install the tap. engineQueue
+    /// only, engine stopped.
+    private func buildChain(for device: AudioDevice) -> Bool {
+        let began = DispatchTime.now()
+        guard select(device) else { return false }
+        timing.select += Self.milliseconds(since: began)
+        let tapBegan = DispatchTime.now()
+        let input = engine.inputNode
+        // `inputFormat`, NOT `outputFormat`. Selecting the device renegotiates the
+        // hardware — a microphone the system was running at 44.1 kHz comes back at
+        // 48 kHz — while `outputFormat` keeps returning the value the node cached
+        // BEFORE the device was set. A tap installed with that stale format is
+        // never called: AVFoundation's own precondition is
+        // `format.sampleRate == inputHWFormat.sampleRate`, and it fails silently.
+        // Measured 04.09.2026: tap 44100 against hardware 48000 gave 0 frames in a
+        // second, where the hardware format gave 48000.
+        let hardwareFormat = input.inputFormat(forBus: 0)
+        let inputFormat = hardwareFormat.sampleRate > 0 ? hardwareFormat : input.outputFormat(forBus: 0)
+        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else {
+            logger.error("\(device.name, privacy: .public) reports no usable input format")
+            return false
+        }
+        input.removeTap(onBus: 0)
+        guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
+            logger.error("Failed to create audio converter for \(device.name, privacy: .public)")
+            converter = nil
+            tapFormat = nil
+            return false
+        }
+        converter = conv
+        tapFormat = inputFormat
+        builtSignature = device.signature
+        let target = targetFormat
+        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
+            self?.handleTap(buffer, inputFormat: inputFormat, targetFormat: target)
+        }
+        timing.tap += Self.milliseconds(since: tapBegan)
+        return true
+    }
+
+    /// The chain for whatever the first candidate is right now. Used when the
+    /// hardware changes under a running recording; a start walks the whole list.
+    @discardableResult
+    private func buildChainForCurrentInput() -> Bool {
+        guard let resolution = AudioDeviceResolver.current(preferredUID: preferredDeviceUID) else {
+            logger.error("No usable audio input device")
+            return false
+        }
+        return buildChain(for: resolution.device)
+    }
+
+    private static func milliseconds(since start: DispatchTime) -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
     }
 
     /// Throws away the engine and every cached format, and builds the input chain
@@ -282,7 +337,7 @@ final class AudioCaptureService: @unchecked Sendable {
         converter = nil
         tapFormat = nil
         builtSignature = nil
-        refreshTapIfNeeded()
+        buildChainForCurrentInput()
     }
 
     /// Begin forwarding mic audio to the sinks. All engine I/O runs on
@@ -310,66 +365,119 @@ final class AudioCaptureService: @unchecked Sendable {
         self.onLevel = onLevel
 
         engineQueue.async { [self] in
-            do {
-                refreshTapIfNeeded()
-                guard converter != nil else {
-                    // No input at all: say so instead of failing with a generic
-                    // engine error the user cannot act on.
-                    logger.error("Start refused: no usable audio input device")
-                    active = false
-                    completion(.noInputDevice)
-                    return
-                }
-                // Clear any resampler filter state from the previous session. Safe
-                // here: the engine is stopped and the tap is inactive, so no
-                // render-thread callback can be touching the converter.
-                converter?.reset()
-                bufferLock.lock()
-                rawRecording = []
-                rawRate = 0
-                segmentStart = 0
-                bufferLock.unlock()
-                heartbeatLock.lock(); lastBufferAt = 0; heartbeatLock.unlock()
-                active = true
-                if !engine.isRunning {
-                    engine.prepare()   // nothing is kept warm any more — always needed here
-                    #if DEBUG
-                    if failNextStartForTesting {
-                        failNextStartForTesting = false
-                        throw NSError(domain: NSOSStatusErrorDomain, code: -10868)
-                    }
-                    #endif
-                    try engine.start()
-                }
-                // The input works — put the fuse back in, so one bad stretch
-                // doesn't disable recovery for the rest of the app's life.
-                rebuildPolicy.reset()
-                reportedInputUnavailable = false
-                completion(nil)
-            } catch {
-                logger.error("Failed to start engine: \(error.localizedDescription, privacy: .public)")
-                // Recover from a wedged engine (see the note on `engine`): rebuild
-                // against the current hardware and try once more before giving up.
-                let recovered = Self.retryAfterRebuild(
-                    rebuild: { [self] in
-                        rebuildEngine()
-                        engine.prepare()
-                    },
-                    start: { [self] in try engine.start() },
-                    onError: { [self] error in
-                        logger.error("Engine start failed again after the rebuild: \(error.localizedDescription, privacy: .public)")
-                    })
-                if recovered {
-                    logger.info("Engine started after rebuilding the input chain")
-                    rebuildPolicy.reset()
-                    reportedInputUnavailable = false
-                    completion(nil)
-                } else {
-                    active = false
-                    completion(.engineStartFailed)
-                }
+            let began = DispatchTime.now()
+            timing = StartTiming()
+            let snapshot = AudioDeviceResolver.snapshot()
+            let candidates = AudioDeviceResolver.candidates(preferredUID: preferredDeviceUID, in: snapshot)
+            guard !candidates.isEmpty else {
+                // No input at all: say so instead of failing with a generic
+                // engine error the user cannot act on.
+                logger.error("Start refused: no usable audio input device")
+                active = false
+                completion(.noInputDevice)
+                return
             }
+            let resolved = Self.milliseconds(since: began)
+
+            let now = Date().timeIntervalSinceReferenceDate
+            let passedOver = AudioDeviceResolver.activeFailures(failures, now: now, fingerprint: snapshot.fingerprint)
+            failures.removeAll { !passedOver.contains($0.uid) }   // stale or outdated: forget
+            let order = AudioDeviceResolver.attemptOrder(candidates, excluding: passedOver)
+
+            let outcome = AudioDeviceResolver.firstWorking(order) { candidate in
+                if attemptStart(on: candidate.device) { return true }
+                failures.append(.init(uid: candidate.device.uid, at: now, fingerprint: snapshot.fingerprint))
+                return false
+            }
+            guard let outcome else {
+                active = false
+                logger.error("No microphone could be started (\(order.count, privacy: .public) attempts)")
+                completion(.engineStartFailed)
+                return
+            }
+
+            let winner = order[outcome.index]
+            failures.removeAll { $0.uid == winner.device.uid }   // it works: no reason to pass it over
+            // The input works — put the fuse back in, so one bad stretch doesn't
+            // disable recovery for the rest of the app's life.
+            rebuildPolicy.reset()
+            reportedInputUnavailable = false
+
+            // Failed just now OR passed over because it failed a moment ago: both
+            // mean "this recording is not on the microphone you would expect".
+            let unusable = Set(outcome.failed.map(\.device.uid)).union(passedOver)
+            let failedNames = AudioDeviceResolver.outranked(by: winner.device, in: candidates, unusable: unusable)
+            // One line per start, in the build people actually run: this is the
+            // only honest record of how long "press to live" takes and why.
+            let total = Self.milliseconds(since: began)
+            logger.info("""
+                Start \(total, format: .fixed(precision: 0), privacy: .public) ms on \(winner.device.name, privacy: .public) \
+                (\(winner.source.rawValue, privacy: .public)) — resolve \(resolved, format: .fixed(precision: 0), privacy: .public), \
+                select \(self.timing.select, format: .fixed(precision: 0), privacy: .public), \
+                tap \(self.timing.tap, format: .fixed(precision: 0), privacy: .public), \
+                prepare \(self.timing.prepare, format: .fixed(precision: 0), privacy: .public), \
+                engine start \(self.timing.engine, format: .fixed(precision: 0), privacy: .public), \
+                first buffer \(self.timing.firstBuffer, format: .fixed(precision: 0), privacy: .public), \
+                attempts \(self.timing.attempts, privacy: .public)
+                """)
+            if !failedNames.isEmpty {
+                logger.error("Fell back to \(winner.device.name, privacy: .public) — did not start: \(failedNames.joined(separator: ", "), privacy: .public)")
+            }
+            onStarted?(CaptureStartInfo(device: winner.device, source: winner.source, failedNames: failedNames))
+            completion(nil)
         }
+    }
+
+    /// One attempt on one device, from a bare engine: build the chain, start,
+    /// and wait for the first buffer. A started engine that delivers nothing is
+    /// not a start — it is the deaf microphone the watchdog would otherwise
+    /// need two seconds of a live recording to notice. engineQueue only.
+    private func attemptStart(on device: AudioDevice) -> Bool {
+        timing.attempts += 1
+        releaseEngine()
+        guard buildChain(for: device) else { releaseEngine(); return false }
+
+        bufferLock.lock()
+        rawRecording = []
+        rawRate = 0
+        bufferLock.unlock()
+        let firstBuffer = DispatchSemaphore(value: 0)
+        heartbeatLock.lock()
+        lastBufferAt = 0
+        firstBufferSignal = firstBuffer
+        heartbeatLock.unlock()
+
+        active = true
+        let prepareBegan = DispatchTime.now()
+        engine.prepare()
+        timing.prepare += Self.milliseconds(since: prepareBegan)
+        let engineBegan = DispatchTime.now()
+        do {
+            #if DEBUG
+            if failNextStartForTesting {
+                failNextStartForTesting = false
+                throw NSError(domain: NSOSStatusErrorDomain, code: -10868)
+            }
+            #endif
+            try engine.start()
+        } catch {
+            logger.error("\(device.name, privacy: .public) did not start: \(error.localizedDescription, privacy: .public)")
+            active = false
+            releaseEngine()
+            return false
+        }
+        timing.engine += Self.milliseconds(since: engineBegan)
+
+        let waitBegan = DispatchTime.now()
+        let limit = device.isBluetooth ? Self.firstBufferLimitBluetooth : Self.firstBufferLimit
+        guard firstBuffer.wait(timeout: .now() + limit) == .success else {
+            logger.error("\(device.name, privacy: .public) started but delivered no audio within \(limit, privacy: .public) s")
+            active = false
+            releaseEngine()
+            return false
+        }
+        timing.firstBuffer += Self.milliseconds(since: waitBegan)
+        return true
     }
 
     func stopCapture() {
@@ -400,77 +508,33 @@ final class AudioCaptureService: @unchecked Sendable {
         builtSignature = nil
     }
 
-    /// The raw audio recorded since the last segment cut (the WHOLE recording if no
-    /// cut fired) + its rate, for the final single-shot conversion at stop. Clears
-    /// the buffer.
+    /// Everything recorded since the last hand-over (the WHOLE recording if no
+    /// segment was cut) + its rate, for the final single-shot conversion at stop.
+    /// Hands the storage over instead of copying it, and starts an empty buffer.
     func takeRecording() -> (samples: [Float], rate: Double) {
         bufferLock.lock()
         defer { bufferLock.unlock() }
-        let tail = segmentStart < rawRecording.count ? Array(rawRecording[segmentStart...]) : []
+        let samples = rawRecording
         rawRecording = []
-        segmentStart = 0
-        return (tail, rawRate)
+        return (samples, rawRate)
     }
 
-    /// Hand over the raw audio recorded since the last cut WITHOUT clearing the
-    /// buffer (advances the segment marker) — for mid-recording incremental
-    /// transcription of finished segments.
+    /// Mid-recording: hand over the finished segment for background
+    /// transcription. The samples are never read again after that, so they are
+    /// released here — they used to stay in memory until the recording ended,
+    /// up to 115 MB at ten minutes.
     func takeSegment() -> (samples: [Float], rate: Double) {
-        bufferLock.lock()
-        defer { bufferLock.unlock() }
-        guard segmentStart < rawRecording.count else { return ([], rawRate) }
-        let slice = Array(rawRecording[segmentStart...])
-        segmentStart = rawRecording.count
-        return (slice, rawRate)
-    }
-
-    /// (Re)install the tap if it's missing or the input format changed since last
-    /// time (e.g. the user switched audio device between recordings). Only ever
-    /// called on `engineQueue` while stopped/starting — never mid-recording.
-    private func refreshTapIfNeeded() {
-        // Pin the device BEFORE reading any format. Reading first would ask a
-        // node that has already resolved some other (possibly dead) device.
-        applyInputDevice()
-        let signature = currentInputSignature()
-        let input = engine.inputNode
-        // `inputFormat`, NOT `outputFormat`. Selecting the device renegotiates the
-        // hardware — a microphone the system was running at 44.1 kHz comes back at
-        // 48 kHz — while `outputFormat` keeps returning the value the node cached
-        // BEFORE the device was set. A tap installed with that stale format is
-        // never called: AVFoundation's own precondition is
-        // `format.sampleRate == inputHWFormat.sampleRate`, and it fails silently.
-        // Measured 04.09.2026: tap 44100 against hardware 48000 gave 0 frames in a
-        // second, where the hardware format gave 48000.
-        let hardwareFormat = input.inputFormat(forBus: 0)
-        let inputFormat = hardwareFormat.sampleRate > 0 ? hardwareFormat : input.outputFormat(forBus: 0)
-        guard inputFormat.sampleRate > 0, inputFormat.channelCount > 0 else { return } // no device yet
-        // The signature has to be part of this, not just the format: switching
-        // from the display microphone to the built-in one keeps 48 kHz mono, so
-        // a format-only comparison would keep a tap pointed at the old device.
-        if converter != nil, tapFormat == inputFormat, builtSignature == signature { return }
-
-        input.removeTap(onBus: 0)
-        guard let conv = AVAudioConverter(from: inputFormat, to: targetFormat) else {
-            logger.error("Failed to create audio converter")
-            converter = nil
-            tapFormat = nil
-            return
-        }
-        converter = conv
-        tapFormat = inputFormat
-        builtSignature = signature
-        let target = targetFormat
-        input.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
-            self?.handleTap(buffer, inputFormat: inputFormat, targetFormat: target)
-        }
-        logger.debug("Tap installed @ \(inputFormat.description, privacy: .public)")
+        takeRecording()
     }
 
     private func handleTap(_ buffer: AVAudioPCMBuffer, inputFormat: AVAudioFormat, targetFormat: AVAudioFormat) {
         guard active, let conv = converter else { return }
         heartbeatLock.lock()
+        let isFirst = lastBufferAt == 0
         lastBufferAt = Date().timeIntervalSinceReferenceDate
+        let firstBuffer = isFirst ? firstBufferSignal : nil
         heartbeatLock.unlock()
+        firstBuffer?.signal()   // the start is waiting for exactly this
         // Generous output capacity (round up + headroom) so the resampler output is
         // never truncated.
         let ratio = targetFormat.sampleRate / inputFormat.sampleRate
@@ -532,10 +596,8 @@ final class AudioCaptureService: @unchecked Sendable {
             bufferLock.lock()
             rawRecording.append(contentsOf: chunk)
             rawRate = inputFormat.sampleRate
-            if rawRecording.count > Self.maxRaw {
-                let drop = rawRecording.count - Self.maxRaw
-                rawRecording.removeFirst(drop)
-                segmentStart = max(0, segmentStart - drop)   // keep the marker valid after trimming
+            if rawRecording.count > Self.maxRaw + Self.trimSlack {
+                rawRecording.removeFirst(rawRecording.count - Self.maxRaw)
             }
             bufferLock.unlock()
         }

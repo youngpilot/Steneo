@@ -188,6 +188,16 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(autoStopTimeout.rawValue, forKey: "autoStopTimeout") }
     }
 
+    /// The microphone the user picked, by its stable UID. Empty means
+    /// "automatic": follow the system input. The name is kept next to it so a
+    /// device that is unplugged right now can still be shown and named.
+    var preferredInputUID: String {
+        didSet { UserDefaults.standard.set(preferredInputUID, forKey: "preferredInputUID") }
+    }
+    var preferredInputName: String {
+        didSet { UserDefaults.standard.set(preferredInputName, forKey: "preferredInputName") }
+    }
+
     /// When recording, mute all system output to silence. On by default.
     var silenceMediaWhileRecording: Bool {
         didSet { UserDefaults.standard.set(silenceMediaWhileRecording, forKey: "silenceMediaWhileRecording") }
@@ -329,6 +339,8 @@ final class SettingsStore {
         prefixText = ""
         suffixText = ""
         autoStopTimeout = .sixty
+        preferredInputUID = ""
+        preferredInputName = ""
         silenceMediaWhileRecording = true
         pauseMediaApps = true
         enableVocabBoosting = false
@@ -363,6 +375,8 @@ final class SettingsStore {
         self.politenessMode = ud.bool(forKey: "politenessMode")
         self.suffixText = ud.string(forKey: "suffixText") ?? ""
         self.prefixText = ud.string(forKey: "prefixText") ?? ""
+        self.preferredInputUID = ud.string(forKey: "preferredInputUID") ?? ""
+        self.preferredInputName = ud.string(forKey: "preferredInputName") ?? ""
         self.autoStopTimeout = {
             if ud.object(forKey: "autoStopTimeout") == nil { return .sixty }
             return AutoStopOption(rawValue: ud.integer(forKey: "autoStopTimeout")) ?? .sixty

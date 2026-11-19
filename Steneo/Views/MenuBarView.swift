@@ -353,6 +353,23 @@ struct MenuBarView: View {
             .transition(.opacity)
         }
 
+        // Recording on a fallback microphone: stays until a start needs none.
+        if let notice = recordingManager.microphoneNotice {
+            HStack(alignment: .top, spacing: 6) {
+                Image(systemName: "mic.badge.xmark")
+                    .foregroundStyle(.orange)
+                Text(notice)
+                    .font(.body)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Spacer()
+            }
+            .padding(DesignTokens.Spacing.s)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(RoundedRectangle(cornerRadius: 8)
+                .strokeBorder(Color.orange.opacity(0.3), lineWidth: 0.5))
+        }
+
         // Recordings that produced no text. They used to vanish without a word;
         // now the audio is here and can be run again.
         if !recordingManager.recoveryStore.entries.isEmpty {
@@ -1237,6 +1254,15 @@ private struct InlineSettingsView: View {
     @State private var showFnKeyHint = false
     @State private var showShortcutPicker = false
     @State private var expandedSection: String?
+    /// Microphones for the picker, read when the Recording card opens.
+    @State private var inputDevices: [AudioDevice] = []
+
+    /// What the picker cannot say by itself: what is actually in use, and that
+    /// the Mac's own microphone is always the net underneath.
+    private var microphoneCaption: String {
+        let inUse = recordingManager.microphoneName.map { "In use: \($0). " } ?? ""
+        return inUse + "If a microphone doesn't start, Steneo switches to the Mac's own and tells you."
+    }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
 
@@ -1456,6 +1482,45 @@ private struct InlineSettingsView: View {
 
             // Recording
             SettingsCard(title: "Recording", isExpanded: expandedSection == "Recording", onToggle: { toggleSection("Recording") }) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                        Text("Microphone")
+                        Spacer()
+                        Picker("Microphone", selection: Binding(
+                            get: { settings.preferredInputUID },
+                            set: { uid in
+                                settings.preferredInputUID = uid
+                                settings.preferredInputName = inputDevices.first { $0.uid == uid }?.name ?? ""
+                                recordingManager.refreshMicrophone()
+                            }
+                        )) {
+                            Text("Automatic").tag("")
+                            ForEach(inputDevices) { device in
+                                Text(device.name).tag(device.uid)
+                            }
+                            // A chosen device that is unplugged right now stays
+                            // selectable, so the choice survives until it is back.
+                            if !settings.preferredInputUID.isEmpty,
+                               !inputDevices.contains(where: { $0.uid == settings.preferredInputUID }) {
+                                Text("\(settings.preferredInputName) (not connected)").tag(settings.preferredInputUID)
+                            }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                    .font(labelFont)
+                    Text(microphoneCaption)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                // On the container, which always exists while the card is open:
+                // property reads only, no device is opened by listing them.
+                .onAppear {
+                    inputDevices = AudioDeviceResolver.inputDevices()
+                    recordingManager.refreshMicrophone()
+                }
+
                 Toggle("Mute Media Playback while recording", isOn: Binding(
                     get: { settings.silenceMediaWhileRecording },
                     set: { settings.silenceMediaWhileRecording = $0 }
