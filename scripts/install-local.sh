@@ -39,7 +39,13 @@ fi
 
 mkdir -p "$BUILD_DIR"
 LOG="$BUILD_DIR/build.log"
-echo "=== Building $NAME (Release, signed, not notarised) ==="
+# Say exactly which state this is. A build made while files are being edited
+# is in no commit, and nobody can tell afterwards what is running.
+STATE="commit $(git -C "$PROJECT_DIR" rev-parse --short HEAD)"
+if [ -n "$(git -C "$PROJECT_DIR" status --porcelain -- Steneo Steneo.xcodeproj)" ]; then
+    STATE="$STATE PLUS UNCOMMITTED CHANGES (a state that is in no commit)"
+fi
+echo "=== Building $NAME (Release, signed, not notarised) from $STATE ==="
 if ! DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer xcodebuild \
         -project "$PROJECT_DIR/Steneo.xcodeproj" -scheme "$NAME" -configuration Release \
         -derivedDataPath "$DD" \
@@ -66,4 +72,4 @@ if [ -d "$INSTALLED" ] && [ "$(version_of "$INSTALLED")" != "$(version_of "$BUIL
     echo "Kept $(version_of "$BACKUP") in $BACKUP"
 fi
 swap_in "$BUILT"
-echo "Installed $(version_of "$INSTALLED"). Back to the previous one: scripts/install-local.sh --restore"
+echo "Installed $(version_of "$INSTALLED") from $STATE. Back to the previous one: scripts/install-local.sh --restore"
