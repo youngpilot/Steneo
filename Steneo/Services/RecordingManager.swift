@@ -561,6 +561,7 @@ final class RecordingManager {
     private func captureStarted(_ info: CaptureStartInfo) {
         microphoneName = info.device.name
         let settings = SettingsStore.shared
+        settings.inputStartTimes[info.device.uid] = info.engineStartMilliseconds
         let notice = AudioDeviceResolver.notice(
             used: info.device, source: info.source, failedNames: info.failedNames,
             preferredName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName)

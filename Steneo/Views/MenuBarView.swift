@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -1261,7 +1262,8 @@ private struct InlineSettingsView: View {
     /// the Mac's own microphone is always the net underneath.
     private var microphoneCaption: String {
         let inUse = recordingManager.microphoneName.map { "In use: \($0). " } ?? ""
-        return inUse + "If a microphone doesn't start, Steneo switches to the Mac's own and tells you."
+        return inUse + "The time is how long a microphone needs before it records – speech before that is lost. "
+            + "If one doesn't start, Steneo switches to the Mac's own and tells you."
     }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
@@ -1496,7 +1498,10 @@ private struct InlineSettingsView: View {
                         )) {
                             Text("Automatic").tag("")
                             ForEach(inputDevices) { device in
-                                Text(device.name).tag(device.uid)
+                                Text(AudioDeviceResolver.startLabel(
+                                    name: device.name,
+                                    milliseconds: settings.inputStartTimes[device.uid],
+                                    isBluetooth: device.isBluetooth)).tag(device.uid)
                             }
                             // A chosen device that is unplugged right now stays
                             // selectable, so the choice survives until it is back.
@@ -1519,6 +1524,19 @@ private struct InlineSettingsView: View {
                 .onAppear {
                     inputDevices = AudioDeviceResolver.inputDevices()
                     recordingManager.refreshMicrophone()
+                }
+                // Once per microphone, ever: measure how long it takes to start.
+                // Opens the device for that moment, so not while recording, and
+                // never for Bluetooth (it would pull a headset into call mode).
+                .task(id: inputDevices.map(\.uid)) {
+                    guard AVCaptureDevice.authorizationStatus(for: .audio) == .authorized else { return }
+                    for device in inputDevices where !device.isBluetooth && settings.inputStartTimes[device.uid] == nil {
+                        guard !recordingManager.isRecording, !recordingManager.isStarting else { return }
+                        let measured = await Task.detached(priority: .utility) {
+                            AudioDeviceResolver.measureStart(of: device)
+                        }.value
+                        if let measured { settings.inputStartTimes[device.uid] = measured }
+                    }
                 }
 
                 Toggle("Mute Media Playback while recording", isOn: Binding(

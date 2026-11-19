@@ -13,6 +13,8 @@ struct CaptureStartInfo: Equatable, Sendable {
     let source: AudioDeviceResolver.Source
     /// Devices that were tried first and did not start, in order.
     let failedNames: [String]
+    /// How long this device's own start took. Shown next to it in the picker.
+    let engineStartMilliseconds: Double
 }
 
 /// Captures microphone audio as 16 kHz mono for the ASR.
@@ -112,6 +114,8 @@ final class AudioCaptureService: @unchecked Sendable {
     private var failures: [AudioDeviceResolver.Failure] = []
     /// Where the time of the current start went, in milliseconds. engineQueue only.
     private var timing = StartTiming()
+    /// The engine start of the attempt that succeeded (`timing.engine` sums all attempts).
+    private var winningEngineStart = 0.0
     private struct StartTiming {
         var attempts = 0
         var select = 0.0, tap = 0.0, prepare = 0.0, engine = 0.0, firstBuffer = 0.0
@@ -423,7 +427,8 @@ final class AudioCaptureService: @unchecked Sendable {
             if !failedNames.isEmpty {
                 logger.error("Fell back to \(winner.device.name, privacy: .public) — did not start: \(failedNames.joined(separator: ", "), privacy: .public)")
             }
-            onStarted?(CaptureStartInfo(device: winner.device, source: winner.source, failedNames: failedNames))
+            onStarted?(CaptureStartInfo(device: winner.device, source: winner.source, failedNames: failedNames,
+                                        engineStartMilliseconds: winningEngineStart))
             completion(nil)
         }
     }
@@ -466,7 +471,8 @@ final class AudioCaptureService: @unchecked Sendable {
             releaseEngine()
             return false
         }
-        timing.engine += Self.milliseconds(since: engineBegan)
+        winningEngineStart = Self.milliseconds(since: engineBegan)
+        timing.engine += winningEngineStart
 
         let waitBegan = DispatchTime.now()
         let limit = device.isBluetooth ? Self.firstBufferLimitBluetooth : Self.firstBufferLimit

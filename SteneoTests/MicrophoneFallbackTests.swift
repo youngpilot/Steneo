@@ -169,6 +169,19 @@ final class MicrophoneFallbackTests: XCTestCase {
                                                 failedNames: [scarlett.name], preferredName: nil))
     }
 
+    // MARK: - The start time next to the name
+
+    func testThePickerShowsHowLongAMicrophoneNeeds() {
+        XCTAssertEqual(AudioDeviceResolver.startLabel(name: "Studio Display", milliseconds: 443.4, isBluetooth: false),
+                       "Studio Display · ~440 ms")
+        XCTAssertEqual(AudioDeviceResolver.startLabel(name: "MacBook Pro", milliseconds: 35.2, isBluetooth: false),
+                       "MacBook Pro · ~40 ms")
+        XCTAssertEqual(AudioDeviceResolver.startLabel(name: "Scarlett", milliseconds: nil, isBluetooth: false), "Scarlett",
+                       "an unmeasured device shows no invented number")
+        XCTAssertEqual(AudioDeviceResolver.startLabel(name: "AirPods", milliseconds: nil, isBluetooth: true),
+                       "AirPods · Bluetooth")
+    }
+
     // MARK: - Short recordings
 
     func testAShortAnswerIsPaddedToWhatTheModelNeeds() throws {
