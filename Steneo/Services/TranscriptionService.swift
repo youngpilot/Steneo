@@ -254,7 +254,7 @@ final class TranscriptionService {
     /// de-stutter. Returns "" on too-short/failure. The word-replacement/voice-command
     /// pass runs ONCE on the assembled text (`finalize`), not per chunk.
     private func rawTranscribe(_ rawSamples: [Float], rate: Double) async -> String {
-        let resampled = (rate <= 0 || rate == 16000) ? rawSamples : Self.resample(rawSamples, from: rate)
+        let resampled = (rate <= 0 || rate == 16000) ? rawSamples : AudioResampler.resample(rawSamples, from: rate)
         guard let samples = Self.paddedForModel(resampled) else { return "" }   // too short to hold a word
         do {
             let asr = try await batchEngine()
@@ -309,34 +309,6 @@ final class TranscriptionService {
     /// Pure → unit-tested.
     static func assembleSegments(_ segments: [String], tail: String) -> String {
         (segments + [tail]).filter { !$0.isEmpty }.joined(separator: " ")
-    }
-
-    /// Single-shot resample of a complete mono signal (input rate → `outRate`),
-    /// flushing held samples at end-of-stream. ONE filter warm-up for the whole
-    /// recording (negligible) instead of one per buffer — this is what keeps short
-    /// clips clean (per-buffer resampling garbled their warm-up-heavy start).
-    nonisolated static func resample(_ samples: [Float], from inRate: Double, to outRate: Double = 16000) -> [Float] {
-        guard !samples.isEmpty, inRate > 0, inRate != outRate,
-              let inFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inRate, channels: 1, interleaved: false),
-              let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: outRate, channels: 1, interleaved: false),
-              let conv = AVAudioConverter(from: inFmt, to: outFmt),
-              let inBuf = AVAudioPCMBuffer(pcmFormat: inFmt, frameCapacity: AVAudioFrameCount(samples.count))
-        else { return samples }
-        inBuf.frameLength = AVAudioFrameCount(samples.count)
-        samples.withUnsafeBufferPointer { inBuf.floatChannelData![0].update(from: $0.baseAddress!, count: samples.count) }
-
-        let outCap = AVAudioFrameCount((Double(samples.count) * outRate / inRate).rounded(.up)) + 4096
-        guard let outBuf = AVAudioPCMBuffer(pcmFormat: outFmt, frameCapacity: outCap) else { return samples }
-        var error: NSError?
-        var fed = false
-        conv.convert(to: outBuf, error: &error) { _, status in
-            if fed { status.pointee = .endOfStream; return nil }
-            fed = true
-            status.pointee = .haveData
-            return inBuf
-        }
-        guard error == nil, outBuf.frameLength > 0 else { return samples }
-        return Array(UnsafeBufferPointer(start: outBuf.floatChannelData![0], count: Int(outBuf.frameLength)))
     }
 
     // MARK: - File transcription (batch)

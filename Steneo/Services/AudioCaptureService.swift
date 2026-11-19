@@ -13,8 +13,8 @@ struct CaptureStartInfo: Equatable, Sendable {
     /// Devices ranked ahead of this one that are not being used because they
     /// did not start, in order.
     let failedNames: [String]
-    /// How long this device took to deliver its first audio. Shown next to it
-    /// in the picker.
+    /// How long this device took to deliver its first buffer. For the log;
+    /// when it actually HEARD is known later (`leadHearsAfter`).
     let startMilliseconds: Double
 }
 
@@ -181,6 +181,17 @@ final class AudioCaptureService: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard state.lastBufferAt > 0 else { return nil }
         return Date().timeIntervalSinceReferenceDate - state.lastBufferAt
+    }
+
+    /// How long the microphone of the running recording took until it heard
+    /// something, once that is known (about 0.7 s into the recording). Read
+    /// before `stopCapture()`.
+    var leadHearsAfter: (uid: String, milliseconds: Double)? {
+        lock.lock()
+        let lead = state.lead
+        lock.unlock()
+        guard let lead, let heard = lead.hearsAfter else { return nil }
+        return (lead.device.uid, heard)
     }
 
     // MARK: - Start
@@ -464,7 +475,7 @@ final class AudioCaptureService: @unchecked Sendable {
     /// again every time and garbles short clips.
     static func assemble(_ parts: [(samples: [Float], rate: Double)]) -> [Float] {
         let converted = parts.filter { !$0.samples.isEmpty }
-            .map { TranscriptionService.resample($0.samples, from: $0.rate) }
+            .map { AudioResampler.resample($0.samples, from: $0.rate) }
         return converted.count == 1 ? converted[0] : converted.flatMap { $0 }
     }
 

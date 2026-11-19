@@ -233,9 +233,9 @@ enum AudioDeviceResolver {
         return chosenName == inUse ? nil : "Using \(inUse) instead."
     }
 
-    /// A microphone's name with the time it needs before it records, for the
+    /// A microphone's name with the time it needs before it hears, for the
     /// picker. Rounded to 10 ms: the figure varies by that much between starts,
-    /// and "430" against "40" is the comparison that matters.
+    /// and "450" against "230" is the comparison that matters.
     static func startLabel(name: String, milliseconds: Double?, isBluetooth: Bool) -> String {
         if let milliseconds { return "\(name) · ~\(Int((milliseconds / 10).rounded()) * 10) ms" }
         return isBluetooth ? "\(name) · Bluetooth" : name
@@ -243,31 +243,24 @@ enum AudioDeviceResolver {
 
     // MARK: - CoreAudio
 
-    /// How long this device takes from "start" to its first audio, in
-    /// milliseconds — measured on the device itself, below AVAudioEngine. This
-    /// is hardware time: 19.11.2026 gave ~450 ms for a USB display microphone and
-    /// ~35 ms for the MacBook's own, and no software on top makes it shorter.
-    /// Opens the device for that long, so it is called once per device, on
-    /// request, never for Bluetooth. Blocks; call it off the main thread.
+    /// How long this device takes from "start" until it hears, in milliseconds.
+    /// The same instrument a recording uses (`DeviceInputStream`), so the number
+    /// in the picker and the number "Automatic" decides on cannot drift apart.
+    /// This is hardware time: no software on top makes it shorter. Opens the
+    /// device for about a second, so it is called once per device, on request,
+    /// never for Bluetooth. Blocks; call it off the main thread.
     static func measureStart(of device: AudioDevice, timeout: TimeInterval = 3) -> Double? {
-        final class Once: @unchecked Sendable {
-            private let lock = NSLock()
-            private var fired = false
-            func fire() -> Bool { lock.lock(); defer { lock.unlock() }; if fired { return false }; fired = true; return true }
+        guard let stream = DeviceInputStream(device: device) else { return nil }
+        let queue = DispatchQueue(label: "com.youngpilot.Steneo.capture.measure", qos: .utility)
+        guard stream.start(on: queue, deliver: { _, _ in }) else { return nil }
+        defer { stream.stop() }
+        guard stream.waitForFirstBuffer(timeout: timeout) else { return nil }
+        let deadline = Date().addingTimeInterval(StartObservation.window / 1000 + 0.5)
+        while Date() < deadline {
+            if let heard = stream.hearsAfter { return heard }
+            Thread.sleep(forTimeInterval: 0.05)
         }
-        let once = Once()
-        let arrived = DispatchSemaphore(value: 0)
-        var procID: AudioDeviceIOProcID?
-        let created = AudioDeviceCreateIOProcIDWithBlock(&procID, device.id, nil) { _, input, _, _, _ in
-            if input.pointee.mNumberBuffers > 0, once.fire() { arrived.signal() }
-        }
-        guard created == noErr, let procID else { return nil }
-        defer { AudioDeviceDestroyIOProcID(device.id, procID) }
-        let began = DispatchTime.now()
-        guard AudioDeviceStart(device.id, procID) == noErr else { return nil }
-        defer { AudioDeviceStop(device.id, procID) }
-        guard arrived.wait(timeout: .now() + timeout) == .success else { return nil }
-        return Double(DispatchTime.now().uptimeNanoseconds - began.uptimeNanoseconds) / 1_000_000
+        return nil
     }
 
     private static let systemObject = AudioObjectID(kAudioObjectSystemObject)

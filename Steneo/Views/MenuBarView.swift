@@ -1267,9 +1267,9 @@ private struct InlineSettingsView: View {
     }
 
     /// The explanation lives in the tooltip, for whoever wants it.
-    private let microphoneHelp = "Automatic records with the microphone that starts fastest. "
-        + "The time next to each one is how long it needs. If you pick one yourself, "
-        + "the Mac's own microphone records until yours is ready."
+    private let microphoneHelp = "Automatic records with the microphone that hears you soonest. "
+        + "The time next to each one is how long it needs after the shortcut. If you pick one "
+        + "yourself, the Mac's own microphone records until yours is ready."
 
     /// What the closed picker shows: the name alone. The start time belongs in
     /// the open list, where microphones are compared.
@@ -1308,15 +1308,22 @@ private struct InlineSettingsView: View {
         .labelsHidden()
     }
 
-    /// One quiet line under a control. Short, or it is not a hint.
-    private func hint(_ text: String, systemImage: String? = nil, tint: Color? = nil) -> some View {
+    /// One quiet line under a control. Short, or it is not a hint: what needs
+    /// a paragraph goes into `detail`, which is the tooltip. `attached` pulls it
+    /// up to the control above when the two are siblings in a card.
+    private func hint(_ text: String, systemImage: String? = nil, tint: Color? = nil,
+                      attached: Bool = false, detail: String? = nil) -> some View {
         let style = tint.map { AnyShapeStyle($0) } ?? AnyShapeStyle(.secondary)
-        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+        let line = HStack(alignment: .firstTextBaseline, spacing: 4) {
             if let systemImage { Image(systemName: systemImage) }
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
         .font(.caption)
         .foregroundStyle(style)
+        .padding(.top, attached ? -DesignTokens.Spacing.xs : 0)
+        return Group {
+            if let detail { line.help(detail) } else { line }
+        }
     }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name
@@ -1398,11 +1405,11 @@ private struct InlineSettingsView: View {
                 }
 
                 if settings.activationMode == .hold {
-                    Text("Push-to-talk: hold the shortcut to record, release to stop. Works best with F5 or a Space combo — a bare modifier like Right ⌥ can trigger accidentally.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Hold to record, release to stop. Best with F5 or a Space combo.", attached: true,
+                         detail: "A bare modifier like Right ⌥ can trigger by accident.")
                 }
+
+                Divider().opacity(0.5)
 
                 settingsRow("History preview") {
                     Picker("", selection: Binding(
@@ -1485,12 +1492,9 @@ private struct InlineSettingsView: View {
                     .fixedSize()
                 }
 
-                Text(settings.updateCheckMode == .daily
-                     ? "Steneo checks GitHub once a day. One request, no account, nothing sent."
-                     : "No automatic checks. Steneo makes no network calls unless you press Check Now.")
-                    .font(labelFont)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                hint(settings.updateCheckMode == .daily
+                     ? "Once a day: one request to GitHub, nothing sent."
+                     : "No network calls unless you press Check Now.", attached: true)
 
                 HStack(spacing: 8) {
                     Button {
@@ -1501,6 +1505,14 @@ private struct InlineSettingsView: View {
                     .buttonStyle(BorderedHoverButtonStyle())
                     .controlSize(.small)
                     .disabled(updater.isChecking)
+                    // What the last check said, next to the button that ran it.
+                    if !(updater.updateAvailable && updater.latestVersion != nil && updater.releaseURL != nil) {
+                        if updater.lastCheckFailed {
+                            hint("Couldn't reach GitHub.", tint: .orange)
+                        } else if updater.lastSuccess != nil {
+                            hint("Up to date (v\(updater.currentVersion)).")
+                        }
+                    }
                     Spacer()
                 }
 
@@ -1515,15 +1527,6 @@ private struct InlineSettingsView: View {
                         .fixedSize(horizontal: false, vertical: true)
                     }
                     .font(labelFont)
-                } else if updater.lastCheckFailed {
-                    Text("Couldn't reach GitHub. Check your connection and try Check Now again.")
-                        .font(labelFont)
-                        .foregroundStyle(.orange)
-                        .fixedSize(horizontal: false, vertical: true)
-                } else if updater.lastSuccess != nil {
-                    Text("You're on the latest version (v\(updater.currentVersion)).")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
                 }
 
                 Divider().opacity(0.5)
@@ -1637,21 +1640,15 @@ private struct InlineSettingsView: View {
                 }
 
                 if settings.insertionMode == .direct {
-                    Text("Types character by character. Works in apps that block pasting, but a busy app can drop individual letters — use it only if Clipboard fails you.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Types letter by letter. A busy app can drop characters.", attached: true,
+                         detail: "Works in apps that block pasting. Use it only if Clipboard fails you.")
                 } else if settings.insertionMode == .clipboard {
-                    Text("Uses clipboard paste. Fastest, but briefly replaces clipboard.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Clipboard paste. Briefly replaces your clipboard.", attached: true)
                 } else {
-                    Text("Inserts through the clipboard — atomic, and it cannot drop characters. Recommended.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Through the clipboard. Cannot drop characters. Recommended.", attached: true)
                 }
+
+                Divider().opacity(0.5)
 
                 Toggle("Voice Commands", isOn: Binding(
                     get: { settings.enableVoiceCommands },
@@ -1660,10 +1657,7 @@ private struct InlineSettingsView: View {
                 .font(labelFont)
 
                 if settings.enableVoiceCommands {
-                    Text("Say the phrase to insert it (e.g. \"new paragraph\", \"period\"). Toggle the ones you want:")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Say the phrase to insert it, like \"new paragraph\".", attached: true)
 
                     VStack(alignment: .leading, spacing: 2) {
                         ForEach(VoiceCommandID.allCases) { cmd in
@@ -1689,11 +1683,11 @@ private struct InlineSettingsView: View {
                 .font(labelFont)
 
                 if settings.enableEmojiCommands {
-                    Text("Say a word next to \"emoji\" — e.g. \"smile emoji\" → 😊, \"emoji fire\" → 🔥. Curated, on-device.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Say \"smile emoji\" or \"emoji fire\".", attached: true,
+                         detail: "A curated list, matched on your Mac.")
                 }
+
+                Divider().opacity(0.5)
 
                 settingsRow("Prefix") {
                     TextField("", text: Binding(
@@ -1711,6 +1705,8 @@ private struct InlineSettingsView: View {
                     .textFieldStyle(.roundedBorder)
                 }
 
+                Divider().opacity(0.5)
+
                 settingsRow("Cleanup") {
                     Picker("", selection: Binding(
                         get: { settings.cleanupMode },
@@ -1725,20 +1721,13 @@ private struct InlineSettingsView: View {
                 }
 
                 if settings.cleanupMode == .rules {
-                    Text("Drops spoken fillers (um, äh) after dictation — instant, on-device, and never changes your wording. Punctuation & capitalization come from the speech model.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Drops fillers (um, äh). Never changes your wording.", attached: true,
+                         detail: "Instant and on-device. Punctuation and capitalisation come from the speech model.")
                 } else if settings.cleanupMode == .ai {
-                    Text("Apple's on-device model removes fillers and tidies light grammar. Stays on your Mac, but can occasionally rephrase — for verbatim or mixed-language dictation, prefer Rules.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Removes fillers and tidies grammar. May rephrase.", attached: true,
+                         detail: "Apple's on-device model. Stays on your Mac. For verbatim or mixed-language dictation, prefer Rules.")
                     if !TextCleanupService.shared.usesAppleIntelligence {
-                        Text("Apple Intelligence isn't available on this Mac, so AI falls back to Rules.")
-                            .font(labelFont)
-                            .foregroundStyle(.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                        hint("Apple Intelligence isn't available here, so AI falls back to Rules.", attached: true)
                     }
                 }
 
@@ -1756,30 +1745,21 @@ private struct InlineSettingsView: View {
                 }
 
                 if settings.formatMode == .paragraphs {
-                    Text("Splits your dictation into paragraphs at topic shifts — on-device, keeps your wording.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Paragraphs at topic shifts. Keeps your wording.", attached: true,
+                         detail: "Runs on your Mac.")
                 } else if settings.formatMode == .bullets {
-                    Text("Turns your dictation into a bullet list — on-device. Keeps the meaning; may tighten wording.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("A bullet list. Keeps the meaning, may tighten wording.", attached: true,
+                         detail: "Runs on your Mac.")
                 }
                 if settings.formatMode != .none, !FormattingService.shared.usesAppleIntelligence {
-                    Text("Formatting needs Apple Intelligence (macOS 26+), which isn't available here — text is left unformatted.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Needs Apple Intelligence, which isn't available here. Text stays as it is.", attached: true)
                 }
             }
 
             // App Profiles
             SettingsCard(title: "App Profiles", isExpanded: expandedSection == "App Profiles", onToggle: { toggleSection("App Profiles") }) {
-                Text("Dictation adapts to where the text goes. Standard is the Text Output settings above and applies everywhere by default; assign another profile to an app and Steneo uses it whenever you dictate there.")
-                    .font(labelFont)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                hint("Settings for single apps. Every other app uses Standard.",
+                     detail: "Standard is the Text Output settings above. Assign another profile to an app and Steneo uses it whenever you dictate there.")
 
                 Toggle("Use app profiles", isOn: Binding(
                     get: { settings.useAppProfiles },
@@ -1788,10 +1768,7 @@ private struct InlineSettingsView: View {
                 .font(labelFont)
 
                 if !settings.useAppProfiles {
-                    Text("Off — every app uses Standard, and the row in the menu is hidden. Your assignments are kept.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("Off: every app uses Standard. Your assignments are kept.", attached: true)
                 }
 
                 // Everything below stays visible while switched off, just inert:
@@ -1847,10 +1824,7 @@ private struct InlineSettingsView: View {
                     .fontWeight(.medium)
 
                 if settings.appProfiles.isEmpty {
-                    Text("None yet. Every app uses Standard until you assign one.")
-                        .font(labelFont)
-                        .foregroundStyle(.tertiary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    hint("None yet.")
                 } else {
                     ForEach(assignedApps, id: \.self) { bundleID in
                         HStack(spacing: 6) {
@@ -1906,10 +1880,7 @@ private struct InlineSettingsView: View {
 
             // Word Corrections
             SettingsCard(title: "Word Corrections", isExpanded: expandedSection == "Word Corrections", onToggle: { toggleSection("Word Corrections") }) {
-                Text("Fix words the speech model consistently mishears: enter the wrong spelling and its correction. Applied to every transcript.")
-                    .font(labelFont)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
+                hint("For words the model keeps mishearing.", detail: "Enter the wrong spelling and its correction. Applied to every transcript.")
 
                 HStack(spacing: 4) {
                     TextField("Wrong", text: $newFrom)
@@ -1944,7 +1915,7 @@ private struct InlineSettingsView: View {
                 .buttonStyle(LinkHoverButtonStyle())
                 Spacer()
                 Text("Steneo v\(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
-                    .foregroundStyle(.quaternary)
+                    .foregroundStyle(.tertiary)
             }
             .font(.caption)
         }

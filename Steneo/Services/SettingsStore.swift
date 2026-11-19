@@ -198,10 +198,12 @@ final class SettingsStore {
         didSet { UserDefaults.standard.set(preferredInputName, forKey: "preferredInputName") }
     }
 
-    /// How long each microphone takes to start, in milliseconds, by UID. A
-    /// measurement, not a preference: it survives "reset to defaults".
+    /// How long each microphone takes until it hears, in milliseconds, by UID.
+    /// "Automatic" picks the smallest. A measurement, not a preference: it
+    /// survives "reset to defaults". Stored under a new key since 1.7: the
+    /// numbers under the old one counted the first buffer, not the first sound.
     var inputStartTimes: [String: Double] {
-        didSet { UserDefaults.standard.set(inputStartTimes, forKey: "inputStartTimes") }
+        didSet { UserDefaults.standard.set(inputStartTimes, forKey: "inputHearTimes") }
     }
 
     /// When recording, mute all system output to silence. On by default.
@@ -383,7 +385,7 @@ final class SettingsStore {
         self.prefixText = ud.string(forKey: "prefixText") ?? ""
         self.preferredInputUID = ud.string(forKey: "preferredInputUID") ?? ""
         self.preferredInputName = ud.string(forKey: "preferredInputName") ?? ""
-        self.inputStartTimes = ud.dictionary(forKey: "inputStartTimes") as? [String: Double] ?? [:]
+        self.inputStartTimes = ud.dictionary(forKey: "inputHearTimes") as? [String: Double] ?? [:]
         self.autoStopTimeout = {
             if ud.object(forKey: "autoStopTimeout") == nil { return .sixty }
             return AutoStopOption(rawValue: ud.integer(forKey: "autoStopTimeout")) ?? .sixty

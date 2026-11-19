@@ -20,7 +20,8 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 # --- What this run needs from you ----------------------------------------------
 # One spoken sentence, once the build is installed (a notification asks for it).
 # Nothing here plays sound, changes the volume or switches audio devices. TextEdit
-# comes to the front only when the insertion code changed since the last release.
+# comes to the front only when the insertion code changed since the last release,
+# and the microphones are opened for five seconds only when the capture code did.
 echo "This release will ask you to dictate ONE sentence after the build (a notification tells you when)."
 echo ""
 
@@ -37,12 +38,35 @@ fi
 grep -E "Executed [0-9]+ tests, with" "$TEST_LOG" | tail -1
 echo ""
 
+# --- Check C: the capture core on real microphones — ONLY when it changed ----
+# The unit tests that need a microphone are skipped (the test host has no
+# microphone access), so this is the only place the capture code meets hardware
+# before a person does. Silent: about five seconds of the room, nothing played,
+# nothing switched.
+LAST_TAG="$(git -C "$PROJECT_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
+CAPTURE_FILES="Steneo/Services/AudioCaptureService.swift Steneo/Services/DeviceInputStream.swift Steneo/Services/AudioDeviceResolver.swift Steneo/Services/AudioResampler.swift scripts/check-capture.swift scripts/check-capture.sh"
+if [ -n "$LAST_TAG" ] && git -C "$PROJECT_DIR" diff --quiet "$LAST_TAG"..HEAD -- $CAPTURE_FILES \
+        && git -C "$PROJECT_DIR" diff --quiet -- $CAPTURE_FILES; then
+    echo "=== Check C skipped: capture code unchanged since $LAST_TAG ==="
+else
+    echo "=== Check C: capture on this Mac's microphones (silent, ~5 s) ==="
+    C_STATUS=0
+    "$PROJECT_DIR/scripts/check-capture.sh" || C_STATUS=$?
+    if [ "$C_STATUS" -eq 2 ]; then
+        echo "NOT CHECKED: check C had no microphone to judge with (see above). The dictated"
+        echo "             sentence further down is then the only proof that capture works."
+    elif [ "$C_STATUS" -ne 0 ]; then
+        echo "ABORT: capture does not hold on real microphones. Nothing was released."
+        exit 1
+    fi
+fi
+echo ""
+
 # --- Check A: character-exact insertion — ONLY when insertion changed --------
 # The check drives a copy of OutputService's two mechanisms into TextEdit. It
 # says something new only when that code (or the check itself) changed since
 # the last release; otherwise it takes the keyboard for half a minute to
 # re-prove what the previous release already proved.
-LAST_TAG="$(git -C "$PROJECT_DIR" describe --tags --abbrev=0 2>/dev/null || true)"
 INSERTION_FILES="Steneo/Services/OutputService.swift scripts/check-insertion.swift"
 if [ -n "$LAST_TAG" ] && git -C "$PROJECT_DIR" diff --quiet "$LAST_TAG"..HEAD -- $INSERTION_FILES \
         && git -C "$PROJECT_DIR" diff --quiet -- $INSERTION_FILES; then

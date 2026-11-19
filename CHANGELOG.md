@@ -5,18 +5,22 @@ All notable changes to Steneo. Dates are release dates; versions follow the app'
 ## 1.7
 
 ### Added
-- **Automatic now means the fastest microphone.** Until now *Automatic* followed the system's input, however slow. Measured here: 450 ms before a display microphone delivers anything, 540 ms for a USB interface, about 65 ms for the Mac's own. Whatever you said in that time was missing. *Automatic* now records with the microphone that starts fastest, which on a MacBook is its own. The times are in the list, next to each microphone.
+- **Automatic now means the microphone that hears you soonest.** Until now *Automatic* followed the system's input, however slow. Measured here: a display microphone hears nothing for 450 ms after the shortcut, a USB interface for 540 ms, the Mac's own for about 220 ms. Whatever you said in that time was missing. *Automatic* now records with the fastest one, which on a MacBook is its own.
+- **The time next to each microphone is now the time until it hears.** It used to count the first data a device delivered. The Mac's own microphone delivers after 60 ms and then hands over silence for another 170 while it starts up, so the old number flattered it. Steneo now looks at what arrives, not at whether something arrives.
 - **A microphone you pick yourself no longer costs you the start.** If you choose a slower one, the Mac's own microphone records first and yours takes over the moment it delivers. The two are joined on their time stamps, so nothing is said twice and nothing is missing at the switch. On a Mac without a built-in microphone nothing changes.
 
 ### Changed
 - **The menu is easier to read.** Its content sat on glass, and over a busy desktop the text was hard to make out. It now sits on a nearly opaque background, and the cards are a tint instead of a see-through material.
-- **Recording settings, tidied.** "Microphone" is no longer cut off, the closed picker shows the name alone, and the paragraph underneath is gone: one short line appears only when it has something to say, the explanation is in the tooltip. Input settings and media settings are grouped.
+- **Settings, tidied.** Every explanation that was a paragraph is now one short line, with the rest in the tooltip. Settings that belong together are grouped. "Microphone" is no longer cut off, and the closed picker shows the name alone.
 - **The microphone is read directly from the device.** The system's audio engine in between is gone, and with it the machinery that existed to survive its quirks. Opening a device is quicker by about 75 ms and has not failed to deliver once in testing, where the engine left about one start in five without audio.
 - **Fallback order.** Behind a microphone you picked, the next one tried is the fastest, so the Mac's own. If yours never delivers, the recording simply stays there, where it has been running since the first moment.
-- **Muting other audio waits for the start sound.** With the microphone live this early, muting at once would have swallowed Steneo's own start sound.
+- **Muting other audio waits for the start sound**, which takes a tenth of a second. The sound is over before any microphone hears, so it is never on a recording.
+
+### Under the hood
+- Releases now check the capture code against real microphones: a silent five-second run that records the room, plays nothing and switches nothing. The unit tests that need a microphone cannot run, because their host has no microphone access.
 
 ### Known limits
-- The Mac's own microphone hands over silence for its first 170 ms or so. That is the hardware starting up. In practice a recording hears you from roughly a quarter of a second after the shortcut, where it used to be half a second and more.
+- No microphone hears from the instant of the shortcut. With the Mac's own it is roughly a quarter of a second, where it used to be half a second and more.
 - Stopping a recording within its first half second and starting the next one in the same instant makes that next one wait for the first microphone to finish starting.
 - If a microphone dies in the middle of a recording, the recording ends after two seconds and keeps what it has. It does not move to another microphone.
 

@@ -124,6 +124,51 @@ final class InstantStartTests: XCTestCase {
         XCTAssertTrue(AudioCaptureService.assemble([]).isEmpty)
     }
 
+    // MARK: - When a microphone hears, not when it delivers
+
+    private func observe(_ buffers: [(arrival: Double, silent: Bool)]) -> StartObservation {
+        var observation = StartObservation()
+        for buffer in buffers { observation.note(arrival: buffer.arrival, isSilent: buffer.silent) }
+        return observation
+    }
+
+    /// What the MacBook's microphone does, measured on 19.11.2026: a first
+    /// buffer after 60 ms with a blip in it, then 170 ms of digital silence.
+    func testSilenceAfterTheFirstBufferIsStillStartingUp() {
+        var buffers: [(Double, Bool)] = [(60, false)]
+        buffers += stride(from: 70.0, through: 230, by: 10).map { ($0, true) }
+        buffers += stride(from: 240.0, through: 700, by: 10).map { ($0, false) }
+        let observation = observe(buffers)
+        XCTAssertEqual(observation.firstBuffer, 60)
+        XCTAssertEqual(observation.hearsAfter, 230, "the first buffer says 60, the microphone hears from 230")
+    }
+
+    func testAMicrophoneThatHearsFromItsFirstSampleIsMeasuredThere() {
+        let observation = observe(stride(from: 450.0, through: 1100, by: 10).map { ($0, false) })
+        XCTAssertEqual(observation.hearsAfter, 450)
+    }
+
+    /// Counter-check: a number given before the window has passed would be the
+    /// first buffer again, which is the mistake this type exists to end.
+    func testNothingIsClaimedBeforeTheStartHasBeenWatched() {
+        let observation = observe([(60, false), (70, true), (80, true)])
+        XCTAssertNil(observation.hearsAfter)
+    }
+
+    func testAPauseInSpeechLaterIsNotAStartingMicrophone() {
+        var buffers: [(Double, Bool)] = stride(from: 60.0, through: 700, by: 10).map { ($0, false) }
+        buffers += [(900, true), (910, true)]
+        XCTAssertEqual(observe(buffers).hearsAfter, 60, "silence after the window says nothing about the start")
+    }
+
+    /// An input with nothing behind it delivers zeros for ever. It must rank
+    /// last under "Automatic", not first.
+    func testAMicrophoneThatOnlyDeliversSilenceCountsAsSlow() throws {
+        let observation = observe(stride(from: 60.0, through: 800, by: 10).map { ($0, true) })
+        let heard = try XCTUnwrap(observation.hearsAfter)
+        XCTAssertGreaterThanOrEqual(heard, 60 + StartObservation.window - 10)
+    }
+
     // MARK: - Reading a device's buffer
 
     func testOnlyTheFirstChannelIsRead() {

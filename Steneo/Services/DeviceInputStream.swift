@@ -1,8 +1,45 @@
+import Accelerate
 import CoreAudio
 import Foundation
 import os
 
 private let logger = Logger(subsystem: "com.youngpilot.Steneo", category: "AudioCapture")
+
+/// When a microphone that has just been started begins to hear.
+///
+/// Not the same moment as its first buffer. The MacBook's own microphone
+/// delivers after about 60 ms and then hands over digital silence for another
+/// 170 while its hardware comes up; a USB display microphone takes 450 ms to
+/// deliver anything and hears from its first sample. Counting buffers measures
+/// the driver. This looks at what is in them.
+struct StartObservation: Equatable, Sendable {
+    /// How long after the first buffer a silent one still counts as start-up.
+    static let window: Double = 600
+    /// Below this a buffer is digital silence. A live microphone never gets
+    /// there: its own noise is a hundred times louder.
+    static let silence: Float = 0.000_01
+
+    private(set) var firstBuffer: Double?
+    private var lastSilence: Double?
+    private var complete = false
+
+    /// One buffer: when it arrived, in milliseconds since the device was
+    /// started, and whether it held nothing.
+    mutating func note(arrival: Double, isSilent: Bool) {
+        guard !complete else { return }
+        guard let firstBuffer else { self.firstBuffer = arrival; if isSilent { lastSilence = arrival }; return }
+        if arrival - firstBuffer > Self.window { complete = true; return }
+        if isSilent { lastSilence = arrival }
+    }
+
+    /// Milliseconds from start until the device heard something, once the
+    /// window has passed. nil before that: a number given too early would be
+    /// the first buffer again.
+    var hearsAfter: Double? {
+        guard complete, let firstBuffer else { return nil }
+        return lastSilence ?? firstBuffer
+    }
+}
 
 /// One microphone, read directly from the device.
 ///
@@ -23,14 +60,22 @@ final class DeviceInputStream: @unchecked Sendable {
     private let lock = NSLock()
     private var procID: AudioDeviceIOProcID?
     private var beganAt = DispatchTime.now()
-    private var firstBufferAfter: Double?
+    private var observation = StartObservation()
     private let firstBuffer = DispatchSemaphore(value: 0)
 
     /// How long this device took from `start` to its first buffer, in
     /// milliseconds. nil until one arrived.
     var startMilliseconds: Double? {
         lock.lock(); defer { lock.unlock() }
-        return firstBufferAfter
+        return observation.firstBuffer
+    }
+
+    /// How long this device took from `start` until it actually heard
+    /// something, in milliseconds. nil until that is known, which takes
+    /// `StartObservation.window` after the first buffer.
+    var hearsAfter: Double? {
+        lock.lock(); defer { lock.unlock() }
+        return observation.hearsAfter
     }
 
     /// nil when the device has no input format this class can read. The HAL
@@ -70,7 +115,7 @@ final class DeviceInputStream: @unchecked Sendable {
             guard let self else { return }
             let samples = Self.firstChannel(of: input)
             guard !samples.isEmpty else { return }
-            self.noteBuffer()
+            self.noteBuffer(samples)
             // A buffer without a valid capture time is stamped with its arrival,
             // which is one IO cycle late. Close enough to join two microphones on.
             let stamp = inputTime.pointee
@@ -109,11 +154,16 @@ final class DeviceInputStream: @unchecked Sendable {
         AudioDeviceDestroyIOProcID(device.id, running)
     }
 
-    private func noteBuffer() {
+    private func noteBuffer(_ samples: [Float]) {
         lock.lock()
-        let isFirst = firstBufferAfter == nil
-        if isFirst {
-            firstBufferAfter = Double(DispatchTime.now().uptimeNanoseconds - beganAt.uptimeNanoseconds) / 1_000_000
+        let isFirst = observation.firstBuffer == nil
+        // Only while the start is being observed: after that this is one branch.
+        if observation.hearsAfter == nil {
+            var rms: Float = 0
+            vDSP_rmsqv(samples, 1, &rms, vDSP_Length(samples.count))
+            observation.note(
+                arrival: Double(DispatchTime.now().uptimeNanoseconds - beganAt.uptimeNanoseconds) / 1_000_000,
+                isSilent: rms < StartObservation.silence)
         }
         lock.unlock()
         if isFirst { firstBuffer.signal() }

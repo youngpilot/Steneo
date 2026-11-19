@@ -51,9 +51,11 @@ final class RecordingManager {
     private var stopAfterStart = false
     /// When the shortcut was pressed, for timing the mute against the start sound.
     private var pressedAt = Date.distantPast
-    /// The part of the start sound that carries it: the tick itself, before its
-    /// 0.56 s of decay. The mute fades over 0.3 s, so the tail goes out with it.
-    private static let startSoundAudible: TimeInterval = 0.25
+    /// How long the start sound needs to be heard. Its file is 0.56 s long, but
+    /// measured, the tick is over after 40 ms and the rest is silence; the
+    /// remainder here is the output's own delay. A microphone hears from about
+    /// 230 ms, so the sound is gone before anything is recorded.
+    private static let startSoundAudible: TimeInterval = 0.12
     /// Ends a recording whose microphone has gone deaf. Red must mean "your audio
     /// is being captured"; without this it could mean "the engine died and nobody
     /// noticed".
@@ -309,9 +311,9 @@ final class RecordingManager {
     }
 
     /// Muting the output also mutes Steneo's own start sound. Since 1.7 the
-    /// microphone is live about 40 ms after the press, where it used to take
+    /// recording is live about 65 ms after the press, where it used to take
     /// half a second — muting right then would swallow the sound that says
-    /// "recording". So the mute waits until the audible part of it is through.
+    /// "recording". So the mute waits the moment that sound needs.
     private func muteOnceTheStartSoundIsHeard() {
         let remaining = Self.startSoundAudible - Date().timeIntervalSince(pressedAt)
         guard remaining > 0.01 else { systemAudio.muteOutput(); return }
@@ -348,6 +350,11 @@ final class RecordingManager {
         logger.info("Recording stopped after \(ran, format: .fixed(precision: 1), privacy: .public) s — \(reason.rawValue, privacy: .public)")
         watchdogTask?.cancel()
         watchdogTask = nil
+        // "Automatic" ranks microphones by this number. Known only once a
+        // recording has run for most of a second.
+        if let heard = audioCaptureService.leadHearsAfter {
+            SettingsStore.shared.inputStartTimes[heard.uid] = heard.milliseconds
+        }
         audioCaptureService.stopCapture()
         isRecording = false
         inputLevel = 0.0
@@ -570,8 +577,6 @@ final class RecordingManager {
     private func captureStarted(_ info: CaptureStartInfo) {
         microphoneName = info.device.name
         let settings = SettingsStore.shared
-        // "Automatic" ranks microphones by this number, so only a real one is kept.
-        if info.startMilliseconds > 0 { settings.inputStartTimes[info.device.uid] = info.startMilliseconds }
         let notice = AudioDeviceResolver.notice(
             used: info.device, source: info.source, failedNames: info.failedNames,
             preferredName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName)
