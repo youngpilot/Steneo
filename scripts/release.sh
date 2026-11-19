@@ -24,7 +24,7 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 cat <<'NOTE'
 The two release gates take over this Mac for a few minutes:
   A · opens TextEdit and types into it (silent)
-  B · sets the volume to 45, speaks two sentences OUT LOUD, quits the running
+  B · turns the volume up, speaks one sentence OUT LOUD, quits the running
       Steneo and runs the build under test instead
 Everything is put back afterwards.
 

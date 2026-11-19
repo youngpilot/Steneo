@@ -214,6 +214,25 @@ let cases: [(name: String, text: String)] = [
     ("long", String(repeating: "Die Prüfung läuft für Steneo, größer als dreißig Zeichen. ", count: 6)),
 ]
 
+/// Send the text and read back what arrived.
+///
+/// NOTHING arriving is not character loss — lost characters leave the rest
+/// behind. It means the window lost focus between the control paste and the
+/// measurement, which happened on 19.11.2026 in the first seconds of a run
+/// (0 of 21 on both routes, the next four cases exact). So an empty result is
+/// re-established and measured once more; a second empty result, or any
+/// partial one, stands as a failure.
+func measured(_ label: String, _ text: String, _ send: (String) -> Void) -> String {
+    requireWorkingTarget(label)
+    send(text)
+    let got = readScratch()
+    guard got.isEmpty else { return got }
+    print("note  \(label): nothing arrived (frontmost now: \(frontmostApp())) — focus was lost, measuring once more")
+    requireWorkingTarget(label)
+    send(text)
+    return readScratch()
+}
+
 openScratch()
 defer {
     osa("tell application \"TextEdit\" to close document \"\(docName)\" saving no")
@@ -224,18 +243,14 @@ var clipboardFailures = 0
 var typingFailures = 0
 
 for (name, text) in cases {
-    requireWorkingTarget("clipboard · \(name)")
-    pasteViaClipboard(text)
-    if let problem = compare(text, readScratch()) {
+    if let problem = compare(text, measured("clipboard · \(name)", text, pasteViaClipboard)) {
         print("FAIL  clipboard · \(name): \(problem)")
         clipboardFailures += 1
     } else {
         print("ok    clipboard · \(name) — \(text.count) characters exact")
     }
 
-    requireWorkingTarget("typing · \(name)")
-    typeDirectly(text)
-    if let problem = compare(text, readScratch()) {
+    if let problem = compare(text, measured("typing · \(name)", text, typeDirectly)) {
         print("LOSSY typing    · \(name): \(problem)")
         typingFailures += 1
     } else {
