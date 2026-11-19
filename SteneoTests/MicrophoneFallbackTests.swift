@@ -238,7 +238,10 @@ final class MicrophoneFallbackTests: XCTestCase {
 
         let service = AudioCaptureService()
         let box = StartBox()
-        service.onStarted = { box.set($0) }
+        // Two moments since 1.7: audio is kept (the bridge may already be
+        // recording), and later the microphone it ends up on is known.
+        let settled = expectation(description: "final microphone known")
+        service.onStarted = { box.set($0); settled.fulfill() }
         service.failNextStartForTesting = true
         let done = expectation(description: "start finished")
         service.startCapture(onBuffer: { _ in }, onLevel: { _ in }) { error in
@@ -246,6 +249,7 @@ final class MicrophoneFallbackTests: XCTestCase {
             done.fulfill()
         }
         wait(for: [done], timeout: 15)
+        if box.failure == nil { wait(for: [settled], timeout: 15) }
         service.stopCapture()
 
         XCTAssertNil(box.failure, "one failed attempt must not be the end of the recording")

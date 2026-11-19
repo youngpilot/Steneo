@@ -21,7 +21,7 @@ final class RecordingManager {
     let recoveryStore = RecoveryStore.shared
 
     private(set) var isRecording = false
-    private(set) var isStarting = false   // press registered, engine spinning up (shows orange — arming)
+    private(set) var isStarting = false   // press registered, microphone opening (shows orange — arming)
     private(set) var isPostProcessing = false   // post-record on-device LLM pass (AI cleanup / formatting) running
     /// A self-contained test recording's transcript (onboarding "Try it") — shown in
     /// the onboarding window only, never pasted or saved.
@@ -44,11 +44,16 @@ final class RecordingManager {
     private var statusClearTask: Task<Void, Never>?
     private var recordingStartTime: Date?
     private var startTask: Task<Void, Never>?
-    private var audioContinuation: AsyncStream<AVAudioPCMBuffer>.Continuation?
+    private var audioContinuation: AsyncStream<[Float]>.Continuation?
     /// Set when stop is pressed during the brief "starting" window. A half-started
     /// ASR can't be torn down cleanly mid-flight, so we let it come up and then
     /// stop it cleanly (honored in beginCapture).
     private var stopAfterStart = false
+    /// When the shortcut was pressed, for timing the mute against the start sound.
+    private var pressedAt = Date.distantPast
+    /// The part of the start sound that carries it: the tick itself, before its
+    /// 0.56 s of decay. The mute fades over 0.3 s, so the tail goes out with it.
+    private static let startSoundAudible: TimeInterval = 0.25
     /// Ends a recording whose microphone has gone deaf. Red must mean "your audio
     /// is being captured"; without this it could mean "the engine died and nobody
     /// noticed".
@@ -117,13 +122,6 @@ final class RecordingManager {
             }
         }
 
-        // The audio input can fail while nothing is recording (a device is
-        // pulled, the input keeps reconfiguring). Say so instead of leaving a
-        // microphone that silently does nothing.
-        audioCaptureService.onInputUnavailable = { [weak self] message in
-            Task { @MainActor in self?.showStatus(message, isError: true) }
-        }
-
         audioCaptureService.onStarted = { [weak self] info in
             Task { @MainActor in self?.captureStarted(info) }
         }
@@ -166,7 +164,7 @@ final class RecordingManager {
         // No audio warm-up. Touching the input node opens a device, and an open
         // input device drags a Bluetooth headset into the mono call profile —
         // which made simply having Steneo running degrade the user's AirPods.
-        // The engine is built when a recording starts and released when it ends.
+        // The device is opened when a recording starts and given back when it ends.
 
         // Daily update check (no-op in Manual mode; connectivity-driven, at most
         // one GET per 24h). Touching the singleton also starts its net monitor.
@@ -177,7 +175,7 @@ final class RecordingManager {
         if isRecording {
             Task { await stopRecording(reason: .toggle) }
         } else if isStarting {
-            // Stop pressed during the ~200ms start window — honor it the instant
+            // Stop pressed during the start window — honor it the instant
             // the recording is actually live (beginCapture checks this flag).
             stopAfterStart = true
         } else {
@@ -211,8 +209,9 @@ final class RecordingManager {
             return
         }
 
-        // Instant acknowledgement the moment the shortcut registers — red icon
-        // + start sound — BEFORE the audio engine spins up (~200ms HAL setup).
+        // Instant acknowledgement the moment the shortcut registers — the start
+        // sound — while the microphone is being opened.
+        pressedAt = Date()
         stopAfterStart = false
         pendingFailureOverride = nil
         fileTranscriptionDone = false   // a new recording supersedes a stale "ready" badge
@@ -241,29 +240,22 @@ final class RecordingManager {
         transcriptionService.beginCapturing()   // hold audio until ASR is ready
         startTask = Task { @MainActor in await transcriptionService.startTranscription() }
 
-        // beginCapture starts the engine off-main on a dedicated queue and returns
-        // immediately; we flip to red only once the mic is actually live.
+        // beginCapture opens the microphone off the main thread and returns
+        // immediately; we flip to red only once audio is actually being kept.
         beginCapture()
     }
 
     private func beginCapture() {
         guard isStarting, !isRecording else { return }
 
-        // Single ordered audio path: the tap yields into one stream that one
-        // serial consumer drains in capture order (no per-buffer Tasks, no race).
-        // Single ordered audio path: the tap yields into one stream that one
+        // Single ordered audio path: the capture yields into one stream that one
         // serial consumer drains in capture order (no per-buffer Tasks, no race).
         let continuation = transcriptionService.startAudioPipeline()
         audioContinuation = continuation
-        // Engine start runs on AudioCaptureService's dedicated serial queue (off
-        // main, but ONE thread for all engine ops → safe). We enter the recording
-        // state — and turn the icon red — only once the engine is actually live, so
-        // "red == recording" with no lost first words.
+        // We enter the recording state — and turn the icon red — only once audio
+        // is actually being kept, so "red == recording" with no lost first words.
         audioCaptureService.startCapture(
-            onBuffer: { buffer in
-                nonisolated(unsafe) let b = buffer
-                continuation.yield(b)
-            },
+            onBuffer: { samples in continuation.yield(samples) },
             onLevel: { [weak self] level in
                 Task { @MainActor in
                     // Ignore callbacks enqueued before stop so a late one can't
@@ -280,10 +272,10 @@ final class RecordingManager {
         )
     }
 
-    /// Called on the main actor once the audio engine reports a result.
+    /// Called on the main actor once the capture reports a result.
     private func captureCompleted(_ error: AudioCaptureError?) {
         if let error { captureFailed(error); return }
-        // Torn down during start-up (stop pressed, etc.) — stop the engine that
+        // Torn down during start-up (stop pressed, etc.) — stop the capture that
         // just went live instead of entering the recording state.
         guard isStarting, !isRecording else {
             audioCaptureService.stopCapture()
@@ -307,12 +299,26 @@ final class RecordingManager {
         }
 
         if SettingsStore.shared.silenceMediaWhileRecording {
-            systemAudio.muteOutput()
+            muteOnceTheStartSoundIsHeard()
         }
         if SettingsStore.shared.pauseMediaApps {
             systemAudio.pauseMediaApps()
         }
         // Prefix/suffix are pasted together with the full text when recording stops.
+    }
+
+    /// Muting the output also mutes Steneo's own start sound. Since 1.7 the
+    /// microphone is live about 40 ms after the press, where it used to take
+    /// half a second — muting right then would swallow the sound that says
+    /// "recording". So the mute waits until the audible part of it is through.
+    private func muteOnceTheStartSoundIsHeard() {
+        let remaining = Self.startSoundAudible - Date().timeIntervalSince(pressedAt)
+        guard remaining > 0.01 else { systemAudio.muteOutput(); return }
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(remaining))
+            guard let self, self.isRecording, SettingsStore.shared.silenceMediaWhileRecording else { return }
+            self.systemAudio.muteOutput()
+        }
     }
 
     private func captureFailed(_ error: AudioCaptureError) {
@@ -445,9 +451,9 @@ final class RecordingManager {
 
     /// Watch the audio actually arriving, and end the recording if it stops.
     ///
-    /// The engine can die under a live recording — a device pulled, a resume after
-    /// a configuration change that fails. Nothing else notices: `isRecording` stays
-    /// true and the icon stays red over a microphone that hears nothing.
+    /// A microphone can die under a live recording — a device pulled, a hub that
+    /// loses power. Nothing else notices: `isRecording` stays true and the icon
+    /// stays red over a microphone that hears nothing.
     private func startDeafnessWatchdog() {
         watchdogTask?.cancel()
         let startedAt = Date()
@@ -561,7 +567,7 @@ final class RecordingManager {
     private func captureStarted(_ info: CaptureStartInfo) {
         microphoneName = info.device.name
         let settings = SettingsStore.shared
-        settings.inputStartTimes[info.device.uid] = info.engineStartMilliseconds
+        settings.inputStartTimes[info.device.uid] = info.startMilliseconds
         let notice = AudioDeviceResolver.notice(
             used: info.device, source: info.source, failedNames: info.failedNames,
             preferredName: settings.preferredInputUID.isEmpty ? nil : settings.preferredInputName)

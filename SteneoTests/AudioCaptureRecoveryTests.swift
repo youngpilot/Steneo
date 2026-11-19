@@ -2,9 +2,9 @@ import AVFoundation
 import XCTest
 @testable import Steneo
 
-/// Guards the failure Julian hit twice: the audio engine wedges on a stale input
-/// format and every start afterwards fails with -10868 (format not supported),
-/// forever, with nothing but a blinking menubar icon to show for it.
+/// A start that fails must not be the end of recording. This used to guard a
+/// wedged AVAudioEngine; since 1.7 there is no engine, and what remains is the
+/// promise itself: fail once, record anyway, and start again afterwards.
 final class AudioCaptureRecoveryTests: XCTestCase {
 
     /// A pass here means nothing if the microphone isn't available to the test
@@ -37,9 +37,8 @@ final class AudioCaptureRecoveryTests: XCTestCase {
         return box.result.flatMap { $0 }
     }
 
-    /// The whole point of the fix: a start that fails must rebuild the engine and
-    /// come back up, rather than reporting failure and leaving the app stuck.
-    func testStartRecoversFromAWedgedEngine() throws {
+    /// A device that refuses must be passed over, not reported as the end.
+    func testAStartThatFailsOnceStillRecords() throws {
         try requireMicrophone()
         let service = AudioCaptureService()
 
@@ -50,88 +49,4 @@ final class AudioCaptureRecoveryTests: XCTestCase {
         service.failNextStartForTesting = true
         XCTAssertNil(start(service, "recovery"), "a failed start must recover, not give up")
     }
-
-    /// A hardware change must not leave the service unable to start again.
-    func testConfigurationChangeDoesNotWedgeTheService() throws {
-        try requireMicrophone()
-        let service = AudioCaptureService()
-        XCTAssertNil(start(service, "before"), "baseline start must succeed")
-
-        NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
-        // The handler runs on the service's serial queue; give it a beat to land.
-        Thread.sleep(forTimeInterval: 0.3)
-
-        XCTAssertNil(start(service, "after"), "must still start after a configuration change")
-    }
-
-    // MARK: - The storm, against the real service
-
-    /// Drains everything queued on the service's serial queue by posting one more
-    /// notification and waiting for its handler to finish.
-    private func settle(_ seconds: TimeInterval = 0.6) {
-        let deadline = Date().addingTimeInterval(seconds)
-        while Date() < deadline { RunLoop.current.run(until: Date().addingTimeInterval(0.02)) }
-    }
-
-    /// What actually happened on 04.09.2026: a flood of configuration-change
-    /// notifications while the input was in fact unchanged. The 1.4.1 handler
-    /// rebuilt on every single one.
-    func testAFloodOfNotificationsAboutNothingRebuildsNothing() {
-        let service = AudioCaptureService()
-        for _ in 0..<200 {
-            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
-        }
-        settle()
-        XCTAssertEqual(service.rebuildCountForTesting, 0,
-                       "the input never changed; the old handler rebuilt 200 times")
-    }
-
-    /// And when the input really does keep changing, the fuse has to cap it and
-    /// the user has to be told — not a microphone that quietly does nothing.
-    func testRelentlessRealChangeIsCappedAndReported() throws {
-        let service = AudioCaptureService()
-        // Prime the input chain: with nothing built and nothing recording there
-        // is deliberately nothing to rebuild, so an unprimed service would pass
-        // this test by doing nothing at all.
-        // `settle` and not `wait(for:)`: building a chain touches
-        // `AVAudioEngine.inputNode`, which dispatches to the MAIN QUEUE. Only a
-        // spinning run loop services that queue — an expectation wait does not,
-        // so the completion would never arrive. Same mechanism as the deadlock
-        // this release fixes, seen from the other side.
-        let built = BoolBox()
-        service.primeInputChainForTesting { built.set($0) }
-        settle(1.5)
-        try XCTSkipUnless(built.value == true,
-                          "this Mac gave the test runner no input format to build a chain from")
-
-        let counter = Counter()
-        service.signatureOverrideForTesting = { "device-\(counter.next())" }
-        let told = expectation(description: "input reported unavailable")
-        told.assertForOverFulfill = false
-        service.onInputUnavailable = { _ in told.fulfill() }
-
-        for _ in 0..<200 {
-            NotificationCenter.default.post(name: .AVAudioEngineConfigurationChange, object: nil)
-        }
-        wait(for: [told], timeout: 5)
-        settle()
-        XCTAssertLessThanOrEqual(service.rebuildCountForTesting, 10,
-                                 "200 real changes must not mean 200 rebuilds")
-        XCTAssertGreaterThan(service.rebuildCountForTesting, 0,
-                             "positive control: a real change must rebuild at least once")
-    }
-
-    private final class BoolBox: @unchecked Sendable {
-        private let lock = NSLock()
-        private var stored: Bool?
-        func set(_ v: Bool) { lock.lock(); stored = v; lock.unlock() }
-        var value: Bool? { lock.lock(); defer { lock.unlock() }; return stored }
-    }
-
-    private final class Counter: @unchecked Sendable {
-        private let lock = NSLock()
-        private var value = 0
-        func next() -> Int { lock.lock(); defer { lock.unlock() }; value += 1; return value }
-    }
-
 }

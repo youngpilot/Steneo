@@ -96,17 +96,17 @@ final class DeafMicrophoneWatchdogTests: XCTestCase {
         try XCTSkipIf(failure.value != nil,
                       "capture would not start here (\(String(describing: failure.value))) — nothing to measure")
 
-        // SPIN the run loop, never `Thread.sleep`: the audio engine needs the main
-        // QUEUE while it starts, and a sleeping main thread never services it.
+        // The heartbeat moves with the device's first buffer, the VAD block
+        // follows about 80 ms later: wait for both.
         let deadline = Date().addingTimeInterval(2.0)
-        while Date() < deadline, service.secondsSinceLastBuffer == nil {
+        while Date() < deadline, service.secondsSinceLastBuffer == nil || buffers.value == 0 {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         XCTAssertGreaterThan(buffers.value, 0,
-                             "capture started but no audio buffer ever reached the tap — the watchdog would fire on every recording")
+                             "capture started but no audio ever reached the VAD — the watchdog would fire on every recording")
         let gap = try XCTUnwrap(service.secondsSinceLastBuffer,
                                 "buffers arrived (\(buffers.value)) but the heartbeat never moved")
-        XCTAssertLessThan(gap, 1.0, "buffers land every ~85 ms; a full second of gap means the tap is not feeding it")
+        XCTAssertLessThan(gap, 1.0, "buffers land every ~10 ms; a full second of gap means nothing is feeding it")
         service.stopCapture()
     }
 }

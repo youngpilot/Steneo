@@ -2,6 +2,21 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.7
+
+### Added
+- **Recording starts right away, whatever microphone you use.** A microphone on a cable needs time before it delivers anything: measured 450 ms for a display microphone, 540 ms for a USB interface. Whatever you said in that time was missing. Steneo now starts the Mac's own microphone first, which is recording after about 65 ms, and switches to yours the moment it delivers. The two are joined on their time stamps, so nothing is said twice and nothing is missing at the switch. On a Mac without a built-in microphone nothing changes.
+
+### Changed
+- **The microphone is read directly from the device.** The system's audio engine in between is gone, and with it the machinery that existed to survive its quirks. Opening a device is quicker by about 75 ms and has not failed to deliver once in testing, where the engine left about one start in five without audio.
+- **Fallback and instant start are now the same thing.** If your microphone never delivers, the recording simply stays on the Mac's own, where it has been running since the first moment. Until now a fallback cost the failed device's timeout first.
+- **Muting other audio waits for the start sound.** With the microphone live this early, muting at once would have swallowed Steneo's own start sound.
+
+### Known limits
+- The Mac's own microphone hands over silence for its first 170 ms or so. That is the hardware starting up. In practice a recording hears you from roughly a quarter of a second after the shortcut, where it used to be half a second and more.
+- Stopping a recording within its first half second and starting the next one in the same instant makes that next one wait for the first microphone to finish starting.
+- If a microphone dies in the middle of a recording, the recording ends after two seconds and keeps what it has. It does not move to another microphone.
+
 ## 1.6
 
 ### Added

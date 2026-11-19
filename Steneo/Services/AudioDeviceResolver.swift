@@ -166,6 +166,15 @@ enum AudioDeviceResolver {
         return base + [first]
     }
 
+    /// The microphone that records while the first choice is still starting:
+    /// the Mac's own, live after about 35 ms where a USB microphone needs 450.
+    /// nil when it is the first choice itself, or when there is none (a desktop
+    /// Mac, a closed lid) or it is being passed over.
+    static func bridge(in order: [Resolution]) -> Resolution? {
+        guard let first = order.first, !first.device.isBuiltIn else { return nil }
+        return order.first { $0.device.isBuiltIn }
+    }
+
     /// Walk the order until one attempt succeeds. Returns the winner's position
     /// and everything that failed before it, or nil when nothing worked.
     static func firstWorking<T>(_ order: [T], attempt: (T) -> Bool) -> (index: Int, failed: [T])? {

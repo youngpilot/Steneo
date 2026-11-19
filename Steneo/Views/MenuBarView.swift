@@ -1262,8 +1262,13 @@ private struct InlineSettingsView: View {
     /// the Mac's own microphone is always the net underneath.
     private var microphoneCaption: String {
         let inUse = recordingManager.microphoneName.map { "In use: \($0). " } ?? ""
-        return inUse + "The time is how long a microphone needs before it records – speech before that is lost. "
-            + "If one doesn't start, Steneo switches to the Mac's own and tells you."
+        // Without a built-in microphone (a desktop Mac) nothing can cover the
+        // start, and the time next to a device is time its recordings lose.
+        guard inputDevices.contains(where: \.isBuiltIn) else {
+            return inUse + "The time is how long a microphone needs before it records – speech before that is lost."
+        }
+        return inUse + "The time is how long a microphone needs to start. Until then the Mac's own microphone records, "
+            + "and if yours doesn't start at all, the recording stays there and Steneo tells you."
     }
     /// Which extra profile the App Profiles card is currently editing.
     @State private var editedProfileName = OutputProfile.shippedExtras[0].name

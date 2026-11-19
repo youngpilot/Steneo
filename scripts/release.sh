@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-VERSION="1.6"
+VERSION="1.7"
 DIST_NAME="Steneo"     # user-facing app + DMG name
 BUILD_NAME="Steneo"   # internal Xcode product/scheme name (unchanged on purpose)
 TEAM_ID="${STENEO_TEAM_ID:?Set STENEO_TEAM_ID env var (Apple Developer Team ID)}"
@@ -22,16 +22,6 @@ ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 # Nothing here plays sound, changes the volume or switches audio devices. TextEdit
 # comes to the front only when the insertion code changed since the last release.
 echo "This release will ask you to dictate ONE sentence after the build (a notification tells you when)."
-echo ""
-
-# --- Source invariants that a test cannot check ------------------------------
-# A regression here would HANG the test suite rather than fail it, so it is
-# checked in the source before anything is built.
-echo "=== Source check: audio threading ==="
-if ! "$PROJECT_DIR/scripts/check-audio-threading.sh"; then
-    echo "ABORT: the main thread can block on the audio queue. Nothing was released."
-    exit 1
-fi
 echo ""
 
 # --- Unit tests: silent, about 15 seconds, part of every release -------------

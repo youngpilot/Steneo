@@ -171,12 +171,12 @@ final class TranscriptionService {
     /// Create the single, ordered audio pipeline and start its lone consumer.
     /// Returns the continuation the audio tap yields into. One ordered stream +
     /// one serial consumer = in-capture-order buffering, no races.
-    func startAudioPipeline() -> AsyncStream<AVAudioPCMBuffer>.Continuation {
+    func startAudioPipeline() -> AsyncStream<[Float]>.Continuation {
         audioConsumer?.cancel()
-        let (stream, continuation) = AsyncStream<AVAudioPCMBuffer>.makeStream()
+        let (stream, continuation) = AsyncStream<[Float]>.makeStream()
         audioConsumer = Task { @MainActor [weak self] in
-            for await buffer in stream {
-                await self?.feed(buffer)
+            for await samples in stream {
+                await self?.feed(samples)
             }
         }
         return continuation
@@ -315,7 +315,7 @@ final class TranscriptionService {
     /// flushing held samples at end-of-stream. ONE filter warm-up for the whole
     /// recording (negligible) instead of one per buffer — this is what keeps short
     /// clips clean (per-buffer resampling garbled their warm-up-heavy start).
-    static func resample(_ samples: [Float], from inRate: Double, to outRate: Double = 16000) -> [Float] {
+    nonisolated static func resample(_ samples: [Float], from inRate: Double, to outRate: Double = 16000) -> [Float] {
         guard !samples.isEmpty, inRate > 0, inRate != outRate,
               let inFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: inRate, channels: 1, interleaved: false),
               let outFmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: outRate, channels: 1, interleaved: false),
@@ -353,17 +353,13 @@ final class TranscriptionService {
 
     // MARK: - Audio Input (single ordered consumer)
 
-    /// Buffer ONE audio buffer + feed VAD, in capture order. Called only by the
-    /// lone consumer in `startAudioPipeline()`, so calls never overlap or reorder.
-    private func feed(_ buffer: AVAudioPCMBuffer) async {
-        guard isCapturing else { return }
-        guard let channelData = buffer.floatChannelData else { return }
-        let count = Int(buffer.frameLength)
-        guard count > 0 else { return }
-        // This is the per-buffer-converted 16 kHz audio — used ONLY to drive VAD
-        // auto-stop (which tolerates resampler artifacts). The ASR uses the raw
-        // recording, converted in ONE shot at stop (AudioCaptureService.takeRecording).
-        let samples = Array(UnsafeBufferPointer(start: channelData[0], count: count))
+    /// Feed ONE block of 16 kHz audio to the VAD, in capture order. Called only by
+    /// the lone consumer in `startAudioPipeline()`, so calls never overlap or reorder.
+    private func feed(_ samples: [Float]) async {
+        guard isCapturing, !samples.isEmpty else { return }
+        // This is the block-by-block converted audio — used ONLY to drive VAD
+        // auto-stop (which tolerates resampler artifacts). The ASR uses the
+        // recording itself, converted in ONE pass (AudioCaptureService.takeRecording).
         await processVadSamples(samples)
     }
 
