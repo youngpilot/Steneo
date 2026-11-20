@@ -28,12 +28,6 @@ final class TranscriptionService {
     private var asrModels: UncheckedSendableBox<AsrModels>?
     private var batchAsr: AsrManager?        // ONE batch engine: live dictation (v2) + file transcription
     private var vadManager: VadManager?
-    private var ctcBox: UncheckedSendableBox<CtcModels>?
-
-    // Lazy load state for the CTC vocabulary-boosting model (~98 MB).
-    private(set) var isVocabModelLoading = false
-    private(set) var vocabModelLoadFailed = false
-    private var ctcLoadTask: Task<Bool, Never>?
 
     // --- Capture state (v2: buffer raw audio during recording, transcribe ONCE
     // at stop with the full-context batch engine — no streaming windows). This is
@@ -108,40 +102,6 @@ final class TranscriptionService {
 
         modelLoadingStep = ""
         isModelLoaded = true
-    }
-
-    // MARK: - Vocabulary Boosting (CTC model load for the settings toggle)
-    //
-    // NOTE (v2): boosting was applied on the old streaming path. The batch path
-    // does NOT apply it yet — deterministic word REPLACEMENTS (postProcess) remain
-    // the primary correction mechanism. Re-wiring CTC boosting into the batch
-    // engine is a tracked follow-up; the model still loads here so the toggle's
-    // download/state stays honest.
-
-    /// Idempotently download + load the CTC model used for vocabulary boosting.
-    @discardableResult
-    func ensureVocabModelsLoaded() async -> Bool {
-        if ctcBox != nil { return true }
-        if let task = ctcLoadTask { return await task.value }
-
-        isVocabModelLoading = true
-        vocabModelLoadFailed = false
-        let task = Task { () -> Bool in
-            do {
-                let models = try await CtcModels.downloadAndLoad()
-                ctcBox = UncheckedSendableBox(models)
-                return true
-            } catch {
-                logger.error("Vocabulary model load failed: \(error.localizedDescription)")
-                return false
-            }
-        }
-        ctcLoadTask = task
-        let ok = await task.value
-        ctcLoadTask = nil
-        isVocabModelLoading = false
-        vocabModelLoadFailed = !ok
-        return ok
     }
 
     // MARK: - Start / Stop (live dictation → buffer, then ONE batch at stop)

@@ -6,6 +6,27 @@ import XCTest
 /// contains the search term — are invisible in a UI and obvious here.
 final class TextSearchTests: XCTestCase {
 
+    // MARK: - Making a replacement permanent
+
+    func testAReplacementCanBecomeACorrection() {
+        let pair = TextSearch.correction(find: " antropic ", replacement: "Anthropic")
+        XCTAssertEqual(pair?.from, "antropic", "spaces around a word typed into a field are not part of it")
+        XCTAssertEqual(pair?.to, "Anthropic")
+    }
+
+    /// Capitalisation alone is a correction too: corrections match in any case.
+    func testFixingOnlyTheCapitalsCounts() {
+        XCTAssertNotNil(TextSearch.correction(find: "steneo", replacement: "Steneo"))
+    }
+
+    /// "Always replace with nothing" would delete a word from every transcript.
+    func testDeletingIsNeverMadePermanent() {
+        XCTAssertNil(TextSearch.correction(find: "um", replacement: ""))
+        XCTAssertNil(TextSearch.correction(find: "um", replacement: "   "))
+        XCTAssertNil(TextSearch.correction(find: "", replacement: "Anthropic"))
+        XCTAssertNil(TextSearch.correction(find: "same", replacement: "same"), "nothing to remember")
+    }
+
     // MARK: - Find and replace
 
     func testReplacesEveryOccurrence() {

@@ -51,6 +51,16 @@ enum TextSearch {
     }
 
     /// How many times `find` occurs, using the same rules as replacing.
+    /// A find-and-replace as something worth remembering: both sides trimmed,
+    /// and nil when either is empty. An empty replacement would delete a word
+    /// from every future transcript, which nobody means by "always".
+    static func correction(find: String, replacement: String) -> (from: String, to: String)? {
+        let from = find.trimmingCharacters(in: .whitespacesAndNewlines)
+        let to = replacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !from.isEmpty, !to.isEmpty, from != to else { return nil }
+        return (from, to)
+    }
+
     static func count(
         of find: String, in text: String, caseSensitive: Bool = false, wholeWords: Bool = false
     ) -> Int {

@@ -49,6 +49,8 @@ private struct TranscriptView: View {
     @State private var caseSensitive = false
     @State private var wholeWords = false
     @State private var lastResult: String?
+    /// The replacement that was just made, while it can still be made permanent.
+    @State private var justReplaced: (from: String, to: String)?
 
     init(title: String, initialText: String) {
         self.title = title
@@ -77,6 +79,8 @@ private struct TranscriptView: View {
                         caseSensitive: caseSensitive, wholeWords: wholeWords)
                     text = result.text
                     lastResult = result.replacements == 1 ? "1 replacement" : "\(result.replacements) replacements"
+                    justReplaced = result.replacements > 0
+                        ? TextSearch.correction(find: find, replacement: replacement) : nil
                 }
                 .disabled(find.isEmpty || matches == 0)
             }
@@ -91,6 +95,17 @@ private struct TranscriptView: View {
                 Text(footer)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // Fixing a name here fixes it once. One click makes it a Word
+                // Correction, so Steneo gets it right in every transcript from now on.
+                if let pair = justReplaced {
+                    Button("Always") {
+                        TextReplacementService.shared.addReplacement(from: pair.from, to: pair.to)
+                        justReplaced = nil
+                        lastResult = "Saved. “\(pair.from)” becomes “\(pair.to)” in every transcript."
+                    }
+                    .controlSize(.small)
+                    .help("Save as a Word Correction: “\(pair.from)” is replaced by “\(pair.to)” in every future transcript, as a whole word and in any capitalisation.")
+                }
                 Spacer()
                 Button("Copy") {
                     NSPasteboard.general.clearContents()
@@ -104,7 +119,7 @@ private struct TranscriptView: View {
         .frame(minWidth: 420, minHeight: 320)
         // "Copied" or "3 replacements" describes the moment it happened. Once the
         // search or the text moves on, the line goes back to counting.
-        .onChange(of: find) { lastResult = nil }
+        .onChange(of: find) { lastResult = nil; justReplaced = nil }
         .onChange(of: text) { _, _ in if lastResult == "Copied" || lastResult?.hasPrefix("Saved") == true { lastResult = nil } }
     }
 

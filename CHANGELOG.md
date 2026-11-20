@@ -7,10 +7,12 @@ All notable changes to Steneo. Dates are release dates; versions follow the app'
 ### Added
 - **A recording survives its microphone.** If the microphone a recording runs on goes silent, a cable pulled or a hub without power, Steneo notices after about half a second, keeps everything recorded so far and carries on with the next microphone. Until now the recording ended there. Measured with a display microphone cut off in mid-recording: two thirds of a second missing, everything before and after intact. The menu says which microphone stopped.
 - **A window for working with a transcript.** Right-click any History entry, *Open in Window*: the full text with find and replace (match case, whole words), a live match count, Copy and Save as. The menu stays what it is, a glance. This is where you work through a longer text.
+- **Fix a name once, for good.** After *Replace All* in that window, one click on *Always* saves the replacement as a Word Correction. From then on Steneo writes it your way in every transcript. Until now that meant opening the settings and typing both spellings.
 
 ### Under the hood
 - The repository's main branch is the current version again. It had been showing the abandoned 1.5 line since August.
 - The release check for the capture code has a fourth case: a microphone that goes silent in the middle of a recording.
+- Removed the code that loaded a second speech model for boosting single words. Nothing had applied it since the move to transcribing a recording in one pass.
 
 ### Known limits
 - A recording that loses its microphone three times gives up on finding another. It then ends as before, with everything it has.
