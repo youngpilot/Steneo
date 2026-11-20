@@ -41,6 +41,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             logger.info("Starting model loading...")
             await RecordingManager.shared.setup()
             logger.info("Model loading complete")
+            // Only when the release script asks for it.
+            if let file = ReleaseSelfCheck.requestedFile() {
+                await ReleaseSelfCheck.run(file: file)
+            }
         }
     }
 

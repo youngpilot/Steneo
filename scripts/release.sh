@@ -17,19 +17,16 @@ APP_PATH="$BUILD_DIR/$DIST_NAME.app"                     # renamed distributable
 DMG_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.dmg"
 ZIP_PATH="$BUILD_DIR/$DIST_NAME-$VERSION.zip"
 
-# --- What this run needs from you ----------------------------------------------
-# One spoken sentence, once the build is installed (a notification asks for it).
-# Nothing here plays sound, changes the volume or switches audio devices. TextEdit
-# comes to the front only when the insertion code changed since the last release,
-# and the microphones are opened for five seconds only when the capture code did.
-echo "This release will ask you to dictate ONE sentence after the build (a notification tells you when)."
-echo ""
+# --- What this run needs from you: nothing ------------------------------------
+# Nothing here plays sound, changes the volume or switches audio devices. Steneo
+# is quit and relaunched a few times. TextEdit comes to the front only when the
+# insertion code changed since the last release, and the microphones are opened
+# for a few seconds only when the capture code did.
 
-# --- Resuming: straight to the dictated sentence ------------------------------
-# Check B needs a person at the Mac, minutes after the run started. If that
-# moment was missed, everything before it has already been proven for exactly
-# these sources: `--resume` picks up the bundle that was built and asks for the
-# sentence at once. It refuses when the bundle belongs to any other state.
+# --- Resuming: straight to the installed-bundle check ---------------------------
+# If a run stopped at check B, everything before it has already been proven for
+# exactly these sources: `--resume` picks up the bundle that was built and goes
+# straight to check B. It refuses when the bundle belongs to any other state.
 # The state is the app's sources and tests, not the commit: a change to this
 # script does not make a built app a different app.
 RESUME=0
@@ -148,7 +145,7 @@ echo "$SOURCE_STATE" > "$BUILD_DIR/built-from"
 fi   # not resuming
 
 echo ""
-echo "=== Check B: dictate one sentence ==="
+echo "=== Check B: the installed bundle checks itself (microphone + speech model) ==="
 # macOS grants microphone access per bundle PATH, so the build is checked where
 # the app is installed: install the exact bundle being released, keep the
 # previous one to fall back to. The bits under test are the bits that ship.
@@ -164,8 +161,6 @@ pkill -x "$BUILD_NAME" 2>/dev/null || true
 sleep 1
 rm -rf "$INSTALLED"
 cp -R "$APP_PATH" "$INSTALLED"
-open -a "$INSTALLED"
-sleep 4
 
 restore_previous_install() {
     if [ -d "$BACKUP" ]; then
@@ -181,16 +176,16 @@ restore_previous_install() {
 }
 
 B_STATUS=0
-"$PROJECT_DIR/scripts/check-dictation.sh" || B_STATUS=$?
+"$PROJECT_DIR/scripts/check-installed.sh" "$INSTALLED" || B_STATUS=$?
 if [ "$B_STATUS" -eq 2 ]; then
     restore_previous_install
     echo "ABORT: check B had nothing to judge (see above). This says NOTHING about"
-    echo "       the build. Run the release again and dictate a sentence when asked."
+    echo "       the build. Run the release again with --resume."
     exit 1
 fi
 if [ "$B_STATUS" -ne 0 ]; then
     restore_previous_install
-    echo "ABORT: the dictation broke on the build being released. Nothing was released."
+    echo "ABORT: microphone or speech model broke in the build being released. Nothing was released."
     exit 1
 fi
 

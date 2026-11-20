@@ -12,6 +12,7 @@
 		A10001000000000000000301 /* AudioDeviceResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000301 /* AudioDeviceResolver.swift */; };
 		A10001000000000000000302 /* DeviceInputStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000302 /* DeviceInputStream.swift */; };
 		A10001000000000000000330 /* AudioResampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000330 /* AudioResampler.swift */; };
+		A10001000000000000000331 /* ReleaseSelfCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000331 /* ReleaseSelfCheck.swift */; };
 		A10001000000000000000303 /* AudioDeviceResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000303 /* AudioDeviceResolverTests.swift */; };
 		A10001000000000000000304 /* InstantStartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000304 /* InstantStartTests.swift */; };
 		A10001000000000000000305 /* RecordingFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000305 /* RecordingFailure.swift */; };
@@ -63,6 +64,7 @@
 		A10002000000000000000301 /* AudioDeviceResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceResolver.swift; sourceTree = "<group>"; };
 		A10002000000000000000302 /* DeviceInputStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInputStream.swift; sourceTree = "<group>"; };
 		A10002000000000000000330 /* AudioResampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioResampler.swift; sourceTree = "<group>"; };
+		A10002000000000000000331 /* ReleaseSelfCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseSelfCheck.swift; sourceTree = "<group>"; };
 		A10002000000000000000303 /* AudioDeviceResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceResolverTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000304 /* InstantStartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstantStartTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000305 /* RecordingFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFailure.swift; sourceTree = "<group>"; };
@@ -209,6 +211,7 @@
 				A10002000000000000000301 /* AudioDeviceResolver.swift */,
 				A10002000000000000000302 /* DeviceInputStream.swift */,
 				A10002000000000000000330 /* AudioResampler.swift */,
+				A10002000000000000000331 /* ReleaseSelfCheck.swift */,
 				A10002000000000000000305 /* RecordingFailure.swift */,
 				A10002000000000000000306 /* RecoveryStore.swift */,
 				A10002000000000000000310 /* DeafMicrophoneWatchdog.swift */,
@@ -352,6 +355,7 @@
 				A10001000000000000000301 /* AudioDeviceResolver.swift in Sources */,
 				A10001000000000000000302 /* DeviceInputStream.swift in Sources */,
 				A10001000000000000000330 /* AudioResampler.swift in Sources */,
+				A10001000000000000000331 /* ReleaseSelfCheck.swift in Sources */,
 				A10001000000000000000305 /* RecordingFailure.swift in Sources */,
 				A10001000000000000000306 /* RecoveryStore.swift in Sources */,
 				A10001000000000000000310 /* DeafMicrophoneWatchdog.swift in Sources */,
