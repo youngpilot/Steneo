@@ -833,6 +833,12 @@ struct MenuBarView: View {
         .help("Click to copy")
         .contextMenu {
             Button {
+                TranscriptWindowPresenter.shared.show(
+                    title: "Recording #\(entry.formattedId)", text: entry.text)
+            } label: {
+                Label("Open in Window", systemImage: "macwindow")
+            }
+            Button {
                 copyEntry(entry)
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
