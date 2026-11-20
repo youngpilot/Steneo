@@ -13,8 +13,12 @@
 		A10001000000000000000302 /* DeviceInputStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000302 /* DeviceInputStream.swift */; };
 		A10001000000000000000330 /* AudioResampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000330 /* AudioResampler.swift */; };
 		A10001000000000000000331 /* ReleaseSelfCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000331 /* ReleaseSelfCheck.swift */; };
+		A10001000000000000000332 /* NameMeasurement.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000332 /* NameMeasurement.swift */; };
+		A10001000000000000000334 /* NameList.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000334 /* NameList.swift */; };
 		A10001000000000000000303 /* AudioDeviceResolverTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000303 /* AudioDeviceResolverTests.swift */; };
 		A10001000000000000000304 /* InstantStartTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000304 /* InstantStartTests.swift */; };
+		A10001000000000000000333 /* NameMeasurementTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000333 /* NameMeasurementTests.swift */; };
+		A10001000000000000000335 /* NameListTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000335 /* NameListTests.swift */; };
 		A10001000000000000000305 /* RecordingFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000305 /* RecordingFailure.swift */; };
 		A10001000000000000000306 /* RecoveryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000306 /* RecoveryStore.swift */; };
 		A10001000000000000000307 /* RecordingFailureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10002000000000000000307 /* RecordingFailureTests.swift */; };
@@ -68,8 +72,12 @@
 		A10002000000000000000302 /* DeviceInputStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeviceInputStream.swift; sourceTree = "<group>"; };
 		A10002000000000000000330 /* AudioResampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioResampler.swift; sourceTree = "<group>"; };
 		A10002000000000000000331 /* ReleaseSelfCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReleaseSelfCheck.swift; sourceTree = "<group>"; };
+		A10002000000000000000332 /* NameMeasurement.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameMeasurement.swift; sourceTree = "<group>"; };
+		A10002000000000000000334 /* NameList.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameList.swift; sourceTree = "<group>"; };
 		A10002000000000000000303 /* AudioDeviceResolverTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioDeviceResolverTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000304 /* InstantStartTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InstantStartTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000333 /* NameMeasurementTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameMeasurementTests.swift; sourceTree = "<group>"; };
+		A10002000000000000000335 /* NameListTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NameListTests.swift; sourceTree = "<group>"; };
 		A10002000000000000000305 /* RecordingFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFailure.swift; sourceTree = "<group>"; };
 		A10002000000000000000306 /* RecoveryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecoveryStore.swift; sourceTree = "<group>"; };
 		A10002000000000000000307 /* RecordingFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecordingFailureTests.swift; sourceTree = "<group>"; };
@@ -164,6 +172,8 @@
 				A10002000000000000000207 /* InsertionModeTests.swift */,
 				A10002000000000000000303 /* AudioDeviceResolverTests.swift */,
 				A10002000000000000000304 /* InstantStartTests.swift */,
+				A10002000000000000000333 /* NameMeasurementTests.swift */,
+				A10002000000000000000335 /* NameListTests.swift */,
 				A10002000000000000000307 /* RecordingFailureTests.swift */,
 				A10002000000000000000308 /* RecoveryStoreTests.swift */,
 				A10002000000000000000311 /* DeafMicrophoneWatchdogTests.swift */,
@@ -219,6 +229,8 @@
 				A10002000000000000000302 /* DeviceInputStream.swift */,
 				A10002000000000000000330 /* AudioResampler.swift */,
 				A10002000000000000000331 /* ReleaseSelfCheck.swift */,
+				A10002000000000000000332 /* NameMeasurement.swift */,
+				A10002000000000000000334 /* NameList.swift */,
 				A10002000000000000000305 /* RecordingFailure.swift */,
 				A10002000000000000000306 /* RecoveryStore.swift */,
 				A10002000000000000000310 /* DeafMicrophoneWatchdog.swift */,
@@ -365,6 +377,8 @@
 				A10001000000000000000302 /* DeviceInputStream.swift in Sources */,
 				A10001000000000000000330 /* AudioResampler.swift in Sources */,
 				A10001000000000000000331 /* ReleaseSelfCheck.swift in Sources */,
+				A10001000000000000000332 /* NameMeasurement.swift in Sources */,
+				A10001000000000000000334 /* NameList.swift in Sources */,
 				A10001000000000000000305 /* RecordingFailure.swift in Sources */,
 				A10001000000000000000306 /* RecoveryStore.swift in Sources */,
 				A10001000000000000000310 /* DeafMicrophoneWatchdog.swift in Sources */,
@@ -405,6 +419,8 @@
 				A10001000000000000000207 /* InsertionModeTests.swift in Sources */,
 				A10001000000000000000303 /* AudioDeviceResolverTests.swift in Sources */,
 				A10001000000000000000304 /* InstantStartTests.swift in Sources */,
+				A10001000000000000000333 /* NameMeasurementTests.swift in Sources */,
+				A10001000000000000000335 /* NameListTests.swift in Sources */,
 				A10001000000000000000307 /* RecordingFailureTests.swift in Sources */,
 				A10001000000000000000308 /* RecoveryStoreTests.swift in Sources */,
 				A10001000000000000000311 /* DeafMicrophoneWatchdogTests.swift in Sources */,

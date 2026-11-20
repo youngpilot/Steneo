@@ -98,6 +98,10 @@ final class RecordingManager {
     var lastConfidence: Float { transcriptionService.lastConfidence }
     var minTokenConfidence: Float { transcriptionService.minTokenConfidence }
     var avgTokenConfidence: Float { transcriptionService.avgTokenConfidence }
+    var namesState: TranscriptionService.NamesState { transcriptionService.namesState }
+
+    /// The names list changed: listen for the list as it is now.
+    func namesChanged() { transcriptionService.prepareNames() }
 
     private init() {
         hotkeyService.onToggle = { [weak self] in
@@ -145,6 +149,7 @@ final class RecordingManager {
             logger.info("Loading models...")
             try await transcriptionService.loadModel()
             logger.info("Models loaded successfully")
+            transcriptionService.prepareNames()
         } catch {
             modelLoadError = error.localizedDescription
             logger.error("Failed to load model: \(error.localizedDescription)")

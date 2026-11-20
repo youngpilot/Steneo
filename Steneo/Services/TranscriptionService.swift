@@ -29,6 +29,33 @@ final class TranscriptionService {
     private var batchAsr: AsrManager?        // ONE batch engine: live dictation (v2) + file transcription
     private var vadManager: VadManager?
 
+    // --- Names (1.9): a list of names the person wants written their way.
+    enum NamesState: Equatable { case off, loading, ready, failed }
+    /// Whether the names list is being listened for.
+    private(set) var namesState: NamesState = .off
+    /// The second model, which listens for the names. 98 MB, loaded only when
+    /// the list holds something.
+    private var nameModels: CtcModels?
+    /// The session for the list as it was when the session was built.
+    private var nameSession: (names: [String], session: VocabularyBoostingSession)?
+    private var namesTask: Task<Void, Never>?
+    /// Where the list comes from. The person's own list, unless a measurement
+    /// brings one: it must run this code, not a copy of it, without writing
+    /// test names into anyone's settings.
+    var listedNames: () -> [String] = { TextReplacementService.shared.boostWords }
+
+    /// Returns once the list that was last prepared is being listened for (or
+    /// has failed to load).
+    func namesSettled() async { await namesTask?.value }
+    /// The SDK's "acoustic rescue" proposes a name wherever the second model
+    /// thinks it heard one, however little the transcript resembles it. That
+    /// model is an English one. Measured on 20.11.2026 with 32 synthetic
+    /// sentences, German and English: with the rescue, "zum Segeln" became "zum
+    /// Schiemann" and "Repository" became "RapidRock"; without it neither
+    /// happened and 14 of 16 names were still written right (3 of 16 with no
+    /// list). So: off. `NameMeasurement` repeats the measurement.
+    private static let nameRescoring = VocabularyRescorer.Config(spotterRescueEnabled: false)
+
     // --- Capture state (v2: buffer raw audio during recording, transcribe ONCE
     // at stop with the full-context batch engine — no streaming windows). This is
     // why short clips don't garble and the first words are never lost to ASR
@@ -212,6 +239,65 @@ final class TranscriptionService {
         TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
     }
 
+    // MARK: - Names
+
+    /// Bring the listening in line with the names list. Called at launch and
+    /// whenever the list changes. Returns at once; the model loads in the
+    /// background, and until it is ready names are simply not corrected.
+    func prepareNames() {
+        let names = NameList.usable(listedNames())
+        namesTask?.cancel()
+        guard !names.isEmpty else {
+            nameSession = nil
+            namesState = .off
+            return
+        }
+        if nameSession?.names == names { namesState = .ready; return }
+        namesState = .loading
+        namesTask = Task { @MainActor in
+            do {
+                let models: CtcModels
+                if let nameModels {
+                    models = nameModels
+                } else {
+                    models = try await CtcModels.downloadAndLoad(variant: .ctc110m)
+                    nameModels = models
+                }
+                let vocabulary = CustomVocabularyContext(terms: names.map { CustomVocabularyTerm(text: $0) })
+                let session = try await VocabularyBoostingSession(
+                    vocabulary: vocabulary, ctcModels: models, config: Self.nameRescoring)
+                guard !Task.isCancelled else { return }
+                nameSession = (names, session)
+                namesState = .ready
+                logger.info("Names: listening for \(names.count, privacy: .public)")
+            } catch {
+                guard !Task.isCancelled else { return }
+                logger.error("Names: the model could not be loaded: \(error.localizedDescription, privacy: .public)")
+                namesState = .failed
+            }
+        }
+    }
+
+    /// Write the listed names the way the list spells them. The second model
+    /// only runs when the transcript holds a word that could be one of them, so
+    /// a dictation without names costs nothing. Never throws: a names list must
+    /// not be able to break a transcription.
+    private func withNames(_ text: String, timings: [TokenTiming], samples: [Float]) async -> String {
+        let names = NameList.usable(listedNames())
+        guard !names.isEmpty else { return text }
+        var result = text
+        if let ready = nameSession, ready.names == names,
+           ready.session.hasCTCRescoringCandidates(text: text, tokenTimings: timings) {
+            let began = Date()
+            if let output = await ready.session.rescore(text: text, tokenTimings: timings, audioSamples: samples),
+               output.wasModified {
+                result = output.text
+                logger.info("Names: \(output.replacements.count, privacy: .public) written from the list in \(Date().timeIntervalSince(began) * 1000, format: .fixed(precision: 0), privacy: .public) ms")
+            }
+        }
+        return NameList.respell(result, names: names)
+    }
+
     /// Transcribe one chunk of raw audio (a segment, or the whole recording) with the
     /// batch engine. ONE clean conversion (input rate → 16 kHz, like the file path) +
     /// de-stutter. Returns "" on too-short/failure. The word-replacement/voice-command
@@ -223,7 +309,8 @@ final class TranscriptionService {
             let asr = try await batchEngine()
             var decoder = await freshDecoder(for: asr)
             let result = try await asr.transcribe(samples, decoderState: &decoder)
-            let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            let text = await withNames(result.text, timings: result.tokenTimings ?? [], samples: samples)
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return "" }
             return Self.removeTrailingStutter(trimmed)
         } catch {
@@ -285,7 +372,10 @@ final class TranscriptionService {
         var decoder = await freshDecoder(for: asr)
         let result = try await asr.transcribe(url, decoderState: &decoder)
         let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        return textReplacement.applyReplacements(to: trimmed)
+        // A file gets the names' capitals back, not the listening: that would
+        // run the second model over the whole file.
+        let respelled = NameList.respell(trimmed, names: listedNames())
+        return textReplacement.applyReplacements(to: respelled)
     }
 
     // MARK: - Audio Input (single ordered consumer)

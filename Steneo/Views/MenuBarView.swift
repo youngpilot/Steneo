@@ -1259,6 +1259,7 @@ private struct InlineSettingsView: View {
     @State private var updater = UpdateService.shared
     @State private var newFrom = ""
     @State private var newTo = ""
+    @State private var newName = ""
     @State private var showFnKeyHint = false
     @State private var showShortcutPicker = false
     @State private var expandedSection: String?
@@ -1885,7 +1886,35 @@ private struct InlineSettingsView: View {
             }
 
             // Word Corrections
-            SettingsCard(title: "Word Corrections", isExpanded: expandedSection == "Word Corrections", onToggle: { toggleSection("Word Corrections") }) {
+            SettingsCard(title: "Names & Corrections", isExpanded: expandedSection == "Word Corrections", onToggle: { toggleSection("Word Corrections") }) {
+                // Names: Steneo listens for them, however they come out.
+                hint("Names to write your way: products, companies, people.",
+                     detail: "Steneo listens for these names and writes them as listed, in German and English. "
+                        + "A name one letter away from an ordinary word, like Steneo and stereo, can replace that word. "
+                        + "Needs a second model: a one-time 98 MB download.")
+                HStack(spacing: 4) {
+                    TextField("Name", text: $newName)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { addName() }
+                    Button { addName() } label: {
+                        Image(systemName: "plus.circle.fill")
+                    }
+                    .disabled(NameList.usable([newName]).isEmpty)
+                    .buttonStyle(IconHoverButtonStyle())
+                }
+                .font(labelFont)
+                if !newName.isEmpty, NameList.usable([newName]).isEmpty {
+                    hint("A name needs at least \(NameList.minimumLength) letters.", attached: true)
+                } else if recordingManager.namesState == .loading {
+                    hint("Loading the model that listens for names…", attached: true)
+                } else if recordingManager.namesState == .failed {
+                    hint("The model for names could not be loaded. Capitals are still corrected.",
+                         systemImage: "exclamationmark.triangle.fill", tint: .orange, attached: true)
+                }
+
+                Divider().opacity(0.5)
+
+                // Corrections: one fixed spelling for another.
                 hint("For words the model keeps mishearing.", detail: "Enter the wrong spelling and its correction. Applied to every transcript.")
 
                 HStack(spacing: 4) {
@@ -2010,10 +2039,17 @@ private struct InlineSettingsView: View {
             WordPillsView(
                 boostWords: replacementService.boostWords.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending },
                 replacements: replacementService.replacements.sorted(by: { $0.key < $1.key }),
-                onRemoveBoost: { replacementService.removeBoostWord($0) },
+                onRemoveBoost: { replacementService.removeBoostWord($0); recordingManager.namesChanged() },
                 onRemoveReplacement: { replacementService.removeReplacement(from: $0) }
             )
         }
+    }
+
+    private func addName() {
+        guard let name = NameList.usable([newName]).first else { return }
+        replacementService.addBoostWord(name)
+        recordingManager.namesChanged()
+        newName = ""
     }
 
     private func addWord() {
