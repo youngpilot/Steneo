@@ -2,6 +2,21 @@
 
 All notable changes to Steneo. Dates are release dates; versions follow the app's `MARKETING_VERSION`.
 
+## 1.9
+
+### Added
+- **A names list.** Settings, *Names & Corrections*: enter the products, companies and people you talk about, and Steneo writes them your way, in German and in English. Measured on 32 test sentences with a list of ten names: without the list 3 of 16 names came out right, with it 14 of 16. "Steno" became Steneo, "She-Man" became Schiemann, "Rapid Rock" became RapidRock.
+- The list needs a second model: a one-time 98 MB download when you add your first name. It only runs when a transcript holds a word that could be one of your names, so a dictation without them takes no longer than before.
+
+### Changed
+- **Faster transcription.** The speech engine underneath is five months newer. The same 85 seconds of test audio now take 1.5 s instead of 2.4 s, and every test sentence comes out word for word as before.
+- "Word Corrections" is now "Names & Corrections".
+
+### Good to know
+- **One download after updating.** The newer engine stores its speech model in a new place, so Steneo downloads it once more (470 MB) on first launch. A recording made in the meantime is kept and transcribed as soon as the model is there. The old copy stays in `~/Library/Application Support/FluidAudio/Models/parakeet-tdt-0.6b-v3-coreml`, because other apps can share it. If Steneo is the only one using it, you can delete that folder.
+- **A name one letter away from an ordinary word can replace that word.** With Steneo on the list, "the stereo" became "the Steneo" in one of 16 ordinary test sentences. If a name of yours collides like that, leave it off the list and use a correction instead.
+- A names list is applied to dictation. Transcribed files get the names' capitals back, not the listening.
+
 ## 1.8
 
 ### Added
