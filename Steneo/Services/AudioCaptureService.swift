@@ -96,6 +96,11 @@ struct CapturePiece: Equatable, Sendable {
 /// time stamp of the hand-over. If the other one never delivers, the recording
 /// simply stays where it is. Bridge and fallback are one mechanism.
 ///
+/// A MICROPHONE THAT DIES, since 1.8: while a recording runs, the arriving
+/// audio is watched. When it stops — a cable pulled, a hub without power — the
+/// recording moves to the next microphone and keeps what it has. Until 1.8 it
+/// ended there.
+///
 /// STARTING walks an ordered list — the chosen device, then every other one by
 /// how fast it starts — until one delivers a first buffer. A device that starts
 /// and delivers nothing has not started.
@@ -118,6 +123,14 @@ final class AudioCaptureService: @unchecked Sendable {
     /// Makes the next attempt on a device fail, so falling back can be tested
     /// for real instead of waiting for a microphone to break.
     var failNextStartForTesting = false
+    /// Silences the microphone of the running recording the way a pulled cable
+    /// does: its audio simply stops, and nothing tells the service.
+    func cutLeadForTesting() {
+        lock.lock()
+        let lead = state.lead
+        lock.unlock()
+        lead?.stop()
+    }
     #endif
 
     private let controlQueue = DispatchQueue(label: "com.youngpilot.Steneo.capture", qos: .userInitiated)
@@ -130,6 +143,14 @@ final class AudioCaptureService: @unchecked Sendable {
     private var failures: [AudioDeviceResolver.Failure] = []
     /// Every device currently open. controlQueue only.
     private var open: [DeviceInputStream] = []
+    /// Watches the arriving audio of a running recording. controlQueue only.
+    private var monitor: DispatchSourceTimer?
+    /// What the running recording was started with, for choosing a successor.
+    /// controlQueue only.
+    private var request: (preferredUID: String?, startTimes: [String: Double]) = (nil, [:])
+    /// How often the running recording has moved to another microphone.
+    /// controlQueue only.
+    private var failovers = 0
     /// liveQueue only.
     private let downsampler = LiveDownsampler()
 
@@ -137,6 +158,13 @@ final class AudioCaptureService: @unchecked Sendable {
     /// within half a second, Bluetooth has to switch profiles first.
     private static let firstBufferLimit: TimeInterval = 0.7
     private static let firstBufferLimitBluetooth: TimeInterval = 2.5
+    /// A running microphone delivers every 10 ms or so. This long without a
+    /// buffer and it is gone; checked this often.
+    private static let stallLimit: TimeInterval = 0.6
+    private static let stallCheck: TimeInterval = 0.25
+    /// The fuse: a recording that keeps losing its microphone stops trying.
+    /// After that the watchdog ends it, with everything recorded so far.
+    private static let maxFailovers = 3
     /// The most audio one recording keeps, and how far over before trimming.
     private static let maxSeconds: Double = 600
     private static let trimSlack: Double = 5
@@ -157,6 +185,8 @@ final class AudioCaptureService: @unchecked Sendable {
         var bridge: DeviceInputStream?
         var leadPiece: CapturePiece?
         var bridgePiece: CapturePiece?
+        /// What microphones that died during this recording had recorded, in order.
+        var finished: [CapturePiece] = []
         /// Called once: at the first audio, or with the reason there is none.
         var report: (@Sendable (AudioCaptureError?) -> Void)?
         var sinks: Sinks?
@@ -234,6 +264,8 @@ final class AudioCaptureService: @unchecked Sendable {
 
     private func start(run: Int, preferredUID: String?, startTimes: [String: Double]) {
         closeAll()   // nothing of an earlier recording stays open
+        request = (preferredUID, startTimes)
+        failovers = 0
         let snapshot = AudioDeviceResolver.snapshot()
         let candidates = AudioDeviceResolver.candidates(preferredUID: preferredUID, in: snapshot, startTimes: startTimes)
         guard !candidates.isEmpty else {
@@ -324,6 +356,85 @@ final class AudioCaptureService: @unchecked Sendable {
         }
         onStarted?(CaptureStartInfo(device: winner.resolution.device, source: winner.resolution.source,
                                     failedNames: failedNames, startMilliseconds: deviceStart))
+        watch(run: run)
+    }
+
+    // MARK: - A microphone that dies
+
+    /// Keep an eye on the arriving audio for as long as this recording runs.
+    private func watch(run: Int) {
+        monitor?.cancel()
+        let timer = DispatchSource.makeTimerSource(queue: controlQueue)
+        timer.schedule(deadline: .now() + Self.stallCheck, repeating: Self.stallCheck)
+        timer.setEventHandler { [weak self] in self?.checkForStall(run: run) }
+        monitor = timer
+        timer.resume()
+    }
+
+    private func stopWatching() {
+        monitor?.cancel()
+        monitor = nil
+    }
+
+    private func checkForStall(run: Int) {
+        lock.lock()
+        let current = state.run == run && state.capturing
+        let gap = state.lastBufferAt > 0 ? Date().timeIntervalSinceReferenceDate - state.lastBufferAt : 0
+        lock.unlock()
+        guard current else { stopWatching(); return }
+        // The precondition: react to audio that stopped, never to a notification.
+        guard gap > Self.stallLimit else { return }
+        moveToAnotherMicrophone(run: run, silentFor: gap)
+    }
+
+    /// The microphone of the running recording has stopped delivering. Keep
+    /// what it recorded and continue on the next one. controlQueue only.
+    private func moveToAnotherMicrophone(run: Int, silentFor gap: TimeInterval) {
+        lock.lock()
+        guard state.run == run, state.capturing, let dead = state.lead else { lock.unlock(); return }
+        if let piece = state.bridgePiece { state.finished.append(piece) }
+        if let piece = state.leadPiece { state.finished.append(piece) }
+        state.bridgePiece = nil
+        state.leadPiece = nil
+        state.lead = nil
+        lock.unlock()
+        close(dead)
+
+        failovers += 1
+        guard failovers <= Self.maxFailovers else {
+            logger.error("\(dead.device.name, privacy: .public) stopped delivering too — giving up after \(Self.maxFailovers, privacy: .public) microphones")
+            stopWatching()
+            return
+        }
+
+        let snapshot = AudioDeviceResolver.snapshot()
+        let now = Date().timeIntervalSinceReferenceDate
+        failures.append(.init(uid: dead.device.uid, at: now, fingerprint: snapshot.fingerprint))
+        let candidates = AudioDeviceResolver.candidates(preferredUID: request.preferredUID, in: snapshot,
+                                                        startTimes: request.startTimes)
+        let passedOver = AudioDeviceResolver.activeFailures(failures, now: now, fingerprint: snapshot.fingerprint)
+        let successors = AudioDeviceResolver.successors(to: dead.device.uid, in: candidates, excluding: passedOver)
+
+        var winner: (resolution: AudioDeviceResolver.Resolution, stream: DeviceInputStream)?
+        for candidate in successors {
+            guard isCurrent(run) else { return }
+            if let stream = attempt(candidate.device, run: run) {
+                winner = (candidate, stream)
+                break
+            }
+            guard isCurrent(run) else { return }
+            failures.append(.init(uid: candidate.device.uid, at: now, fingerprint: snapshot.fingerprint))
+        }
+        guard let winner else {
+            // Nothing else to do here: no audio arrives, and the watchdog ends
+            // the recording within two seconds with everything it has.
+            logger.error("\(dead.device.name, privacy: .public) stopped delivering audio and no other microphone took over")
+            stopWatching()
+            return
+        }
+        logger.error("\(dead.device.name, privacy: .public) stopped delivering audio — continuing on \(winner.resolution.device.name, privacy: .public) after \(gap * 1000, format: .fixed(precision: 0), privacy: .public) ms of silence")
+        onStarted?(CaptureStartInfo(device: winner.resolution.device, source: winner.resolution.source,
+                                    failedNames: [dead.device.name], startMilliseconds: winner.stream.startMilliseconds ?? 0))
     }
 
     /// One attempt to make `device` the microphone of this recording. Returns
@@ -426,6 +537,7 @@ final class AudioCaptureService: @unchecked Sendable {
     }
 
     private func closeAll() {
+        stopWatching()
         open.forEach { $0.stop() }
         open.removeAll()
     }
@@ -456,7 +568,8 @@ final class AudioCaptureService: @unchecked Sendable {
     /// segment was cut), as 16 kHz mono. Hands the storage over and starts empty.
     func takeRecording() -> (samples: [Float], rate: Double) {
         lock.lock()
-        var parts: [(samples: [Float], rate: Double)] = []
+        var parts: [(samples: [Float], rate: Double)] = state.finished.map { ($0.samples, $0.rate) }
+        state.finished = []
         if let rate = state.bridgePiece?.rate, let samples = state.bridgePiece?.take() { parts.append((samples, rate)) }
         if let rate = state.leadPiece?.rate, let samples = state.leadPiece?.take() { parts.append((samples, rate)) }
         lock.unlock()

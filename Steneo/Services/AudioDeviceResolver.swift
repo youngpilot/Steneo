@@ -191,6 +191,13 @@ enum AudioDeviceResolver {
         return order.first { $0.device.isBuiltIn }
     }
 
+    /// Where a running recording goes when its microphone dies: every other
+    /// candidate, in order, without the dead one and without those that failed
+    /// recently. Empty when there is nowhere to go.
+    static func successors(to deadUID: String, in candidates: [Resolution], excluding failed: Set<String>) -> [Resolution] {
+        candidates.filter { $0.device.uid != deadUID && !failed.contains($0.device.uid) }
+    }
+
     /// Walk the order until one attempt succeeds. Returns the winner's position
     /// and everything that failed before it, or nil when nothing worked.
     static func firstWorking<T>(_ order: [T], attempt: (T) -> Bool) -> (index: Int, failed: [T])? {

@@ -1,7 +1,7 @@
 // Release check C: the capture core against this Mac's real microphones.
 //
 // Built from the app's own source files (see check-capture.sh), so what runs
-// here is what ships. It records the room for a few seconds. It plays nothing,
+// here is what ships. It records the room for about ten seconds. It plays nothing,
 // changes no volume and switches no device.
 //
 // Why it exists: the unit tests that need a microphone are skipped, because the
@@ -21,7 +21,10 @@ final class Outcome: @unchecked Sendable {
     private var _liveAt: Date?
     private var _error: AudioCaptureError?
     private var _blocks = 0
-    func started(_ info: CaptureStartInfo) { lock.lock(); _info = info; lock.unlock() }
+    private var _names: [String] = []
+    func started(_ info: CaptureStartInfo) { lock.lock(); _info = info; _names.append(info.device.name); lock.unlock() }
+    /// Every microphone the recording has settled on, in order.
+    var names: [String] { lock.lock(); defer { lock.unlock() }; return _names }
     func live(_ error: AudioCaptureError?) { lock.lock(); _error = error; _liveAt = Date(); lock.unlock() }
     func block() { lock.lock(); _blocks += 1; lock.unlock() }
     var info: CaptureStartInfo? { lock.lock(); defer { lock.unlock() }; return _info }
@@ -95,6 +98,36 @@ enum CheckCapture {
                          blocks: outcome.blocks, heartbeat: heartbeat, heard: heard)
     }
 
+    /// A recording whose microphone goes silent after `cutAfter` seconds, the
+    /// way a pulled cable does it. Returns the microphones it ran on, how much
+    /// was recorded of how long it ran, and whether audio was arriving at the end.
+    static func recordThroughADeath(_ service: AudioCaptureService, preferred: String?,
+                                    cutAfter: Double, seconds: Double)
+        -> (names: [String], recorded: Double, ran: Double, heartbeat: TimeInterval?)? {
+        let outcome = Outcome()
+        let live = DispatchSemaphore(value: 0)
+        service.preferredDeviceUID = preferred
+        service.onStarted = { outcome.started($0) }
+        let pressed = Date()
+        service.startCapture(onBuffer: { _ in outcome.block() }, onLevel: { _ in }) { error in
+            outcome.live(error)
+            live.signal()
+        }
+        guard live.wait(timeout: .now() + 6) == .success, let liveAt = outcome.liveAt, outcome.error == nil else {
+            expect(false, "a recording started")
+            service.stopCapture()
+            return nil
+        }
+        Thread.sleep(forTimeInterval: max(0, cutAfter - Date().timeIntervalSince(pressed)))
+        service.cutLeadForTesting()
+        Thread.sleep(forTimeInterval: max(0, seconds - Date().timeIntervalSince(pressed)))
+        let heartbeat = service.secondsSinceLastBuffer
+        let stopped = Date()
+        service.stopCapture()
+        let taken = service.takeRecording()
+        return (outcome.names, Double(taken.samples.count) / taken.rate, stopped.timeIntervalSince(liveAt), heartbeat)
+    }
+
     /// What every recording has to satisfy, whatever microphone it ran on.
     static func judge(_ r: Recording, liveWithin: Double) {
         print(String(format: "   live after %.0f ms on %@, %.2f s recorded of %.2f s",
@@ -150,6 +183,25 @@ enum CheckCapture {
             }
         } else {
             print("2./3. skipped: no external microphone connected")
+        }
+
+        let wired = snapshot.inputs.filter { !$0.isBluetooth }
+        if wired.count > 1 {
+            // Start on a microphone that has somewhere to go when it dies.
+            let first = external ?? wired[0]
+            print("4. The microphone goes silent in the middle of a recording: \(first.name)")
+            // A fresh service: case 3 has just taught the other one to pass a microphone over.
+            if let r = recordThroughADeath(AudioCaptureService(), preferred: first.uid, cutAfter: 1.2, seconds: 3.4) {
+                print(String(format: "   ran on %@, %.2f s recorded of %.2f s", r.names.joined(separator: " → "), r.recorded, r.ran))
+                expect(r.names.count == 2 && r.names.first == first.name && r.names.last != first.name,
+                       "the recording moved to another microphone")
+                expect((r.heartbeat ?? 9) < 0.3, "audio is arriving again at the end")
+                // What is missing is the silence it took to notice plus the next microphone's start.
+                expect(r.recorded > r.ran - 1.6 && r.recorded < r.ran,
+                       "what was recorded before and after is kept, and only the gap is missing")
+            }
+        } else {
+            print("4. skipped: only one wired microphone")
         }
 
         Thread.sleep(forTimeInterval: 0.3)   // let the last device close

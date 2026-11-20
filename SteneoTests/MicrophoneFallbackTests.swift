@@ -92,6 +92,29 @@ final class MicrophoneFallbackTests: XCTestCase {
         XCTAssertEqual(outcome?.index, 1, "the second attempt on the only device must count")
     }
 
+    // MARK: - A microphone that dies while recording
+
+    /// Until 1.8 a recording ended when its microphone did. Now it moves on.
+    func testADeadMicrophoneHandsOverToTheNextOne() {
+        let all = candidates(preferred: scarlett.uid, [macBook, display, scarlett], systemDefault: display)
+        let next = AudioDeviceResolver.successors(to: scarlett.uid, in: all, excluding: [])
+        XCTAssertEqual(next.map(\.device.uid), [macBook.uid, display.uid],
+                       "the Mac's own first, and never the one that just died")
+    }
+
+    func testAMicrophoneThatFailedAMomentAgoIsNotWhereARecordingGoes() {
+        let all = candidates(preferred: scarlett.uid, [macBook, display, scarlett], systemDefault: display)
+        let next = AudioDeviceResolver.successors(to: scarlett.uid, in: all, excluding: [macBook.uid])
+        XCTAssertEqual(next.map(\.device.uid), [display.uid])
+    }
+
+    /// One microphone, and it is gone: there is nowhere to go, and that has to
+    /// come out as "nowhere", not as another try on the dead device.
+    func testWithNothingElseThereIsNowhereToGo() {
+        let all = candidates([scarlett], systemDefault: scarlett)
+        XCTAssertTrue(AudioDeviceResolver.successors(to: scarlett.uid, in: all, excluding: []).isEmpty)
+    }
+
     // MARK: - Remembering what failed
 
     /// The second recording after a failure does not even attempt the broken
