@@ -92,9 +92,7 @@ final class TranscriptionService {
         // One batch engine powers both live dictation (transcribe at stop) and
         // file transcription — full context, best accuracy. Initialized up front
         // so stopping a recording transcribes immediately.
-        let manager = AsrManager()
-        try await manager.initialize(models: models)
-        batchAsr = manager
+        batchAsr = AsrManager(models: models)
 
         // VAD powers auto-stop and paragraph-break detection.
         modelLoadingStep = "Loading VAD model… (2/2)"
@@ -203,10 +201,15 @@ final class TranscriptionService {
             throw NSError(domain: "Steneo", code: 1,
                           userInfo: [NSLocalizedDescriptionKey: "Speech model isn't loaded yet."])
         }
-        let manager = AsrManager()
-        try await manager.initialize(models: asrModels.value)
+        let manager = AsrManager(models: asrModels.value)
         batchAsr = manager
         return manager
+    }
+
+    /// A decoder that knows nothing yet. Every recording, segment and file is
+    /// transcribed on its own: nothing said in one carries over into the next.
+    private func freshDecoder(for asr: AsrManager) async -> TdtDecoderState {
+        TdtDecoderState.make(decoderLayers: await asr.decoderLayerCount)
     }
 
     /// Transcribe one chunk of raw audio (a segment, or the whole recording) with the
@@ -218,7 +221,8 @@ final class TranscriptionService {
         guard let samples = Self.paddedForModel(resampled) else { return "" }   // too short to hold a word
         do {
             let asr = try await batchEngine()
-            let result = try await asr.transcribe(samples, source: .microphone)
+            var decoder = await freshDecoder(for: asr)
+            let result = try await asr.transcribe(samples, decoderState: &decoder)
             let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { return "" }
             return Self.removeTrailingStutter(trimmed)
@@ -278,7 +282,8 @@ final class TranscriptionService {
     /// voice-commands (which don't fit arbitrary recordings).
     func transcribeFile(url: URL) async throws -> String {
         let asr = try await batchEngine()
-        let result = try await asr.transcribe(url, source: .system)
+        var decoder = await freshDecoder(for: asr)
+        let result = try await asr.transcribe(url, decoderState: &decoder)
         let trimmed = result.text.trimmingCharacters(in: .whitespacesAndNewlines)
         return textReplacement.applyReplacements(to: trimmed)
     }
