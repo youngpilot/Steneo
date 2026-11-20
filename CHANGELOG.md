@@ -18,6 +18,7 @@ All notable changes to Steneo. Dates are release dates; versions follow the app'
 
 ### Under the hood
 - Releases now check the capture code against real microphones: a silent five-second run that records the room, plays nothing and switches nothing. The unit tests that need a microphone cannot run, because their host has no microphone access.
+- Releases check the installed app by itself: it records a second of the room and transcribes a sentence that was written to a file, never played. No one has to dictate anything for a release any more.
 
 ### Known limits
 - No microphone hears from the instant of the shortcut. With the Mac's own it is roughly a quarter of a second, where it used to be half a second and more.
